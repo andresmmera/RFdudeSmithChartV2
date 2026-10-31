@@ -107,7 +107,7 @@ QDoubleSpinBox* field(QFormLayout* form, const QString& label, double value,
 {
     auto* result = new QDoubleSpinBox;
     result->setObjectName(name);
-    result->setDecimals(9);
+    result->setDecimals(1);
     result->setRange(minimum, maximum);
     result->setValue(value);
     result->setKeyboardTracking(false);

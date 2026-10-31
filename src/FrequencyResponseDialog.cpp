@@ -24,7 +24,7 @@ QDoubleSpinBox* field(const QString& name, double value, QWidget* parent)
 {
     auto* spin = new QDoubleSpinBox(parent);
     spin->setObjectName(name);
-    spin->setDecimals(9);
+    spin->setDecimals(1);
     spin->setRange(1e-9, 1e12);
     spin->setValue(value);
     spin->setKeyboardTracking(false);

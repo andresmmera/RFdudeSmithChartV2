@@ -23,7 +23,7 @@ QDoubleSpinBox* field(QFormLayout* form, const QString& label, const QString& na
 {
     auto* spin = new QDoubleSpinBox;
     spin->setObjectName(name);
-    spin->setDecimals(9);
+    spin->setDecimals(1);
     spin->setRange(minimum, maximum);
     spin->setValue(value);
     spin->setKeyboardTracking(false);
