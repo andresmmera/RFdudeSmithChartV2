@@ -1,7 +1,8 @@
 # RFdude Smith Chart V2
 
 **Free, unsupported software, provided as-is.** I do not plan to maintain this
-project, respond to feedback or support requests, or accept pull requests.
+project, respond to feedback or support requests, or accept pull requests in general.
+There may be exceptions....
 
 A new cross-platform implementation of Lance Lascari's RFdude Smith Chart
 application, built with Qt 6 Widgets and C++20. The legacy application is a
