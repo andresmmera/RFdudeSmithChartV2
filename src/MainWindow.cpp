@@ -115,8 +115,27 @@ void MainWindow::buildActions()
     auto* view = menuBar()->addMenu(tr("&View"));
     auto* network = menuBar()->addMenu(tr("&Network"));
     auto* help = menuBar()->addMenu(tr("&Help"));
-    auto* toolbar = addToolBar(tr("Network"));
-    toolbar->setObjectName("networkToolbar");
+
+    // One toolbar per group, each with a bold caption, in workflow order.
+    const auto makeGroup = [this](const QString& caption, const QString& objectName) {
+        auto* bar = addToolBar(caption);
+        bar->setObjectName(objectName);
+        bar->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        auto* label = new QLabel(caption);
+        label->setStyleSheet("QLabel { font-weight: bold; padding: 0 6px; }");
+        bar->addWidget(label);
+        return bar;
+    };
+    auto* networkBar = makeGroup(tr("Network"), "networkToolbar");
+    auto* componentBar = makeGroup(tr("Add component"), "componentToolbar");
+    auto* selectedBar = makeGroup(tr("Selected"), "selectedToolbar");
+    auto* synthesisBar = makeGroup(tr("Synthesis"), "synthesisToolbar");
+    // Toolbar buttons use the short iconText; menus keep the full text.
+    const auto describe = [](QAction* a, const QString& shortText, const QString& tip) {
+        a->setIconText(shortText);
+        a->setToolTip(tip);
+    };
+
     const auto action = [this](QMenu* menu, const QString& label, const QKeySequence& shortcut,
                                 const QString& name, const std::function<void()>& callback) {
         auto* a = menu->addAction(label);
@@ -140,20 +159,29 @@ void MainWindow::buildActions()
     editAction_ = action(edit, tr("&Edit component..."), QKeySequence("E"), "editComponent", [this] { editSelected(); });
     deleteAction_ = action(edit, tr("&Delete component"), QKeySequence(Qt::Key_Delete), "deleteComponent", [this] { deleteSelected(); });
     auto* setup = action(network, tr("&Setup..."), QKeySequence("S"), "setup", [this] { settings("startR"); });
-    toolbar->addAction(setup);
+
+    describe(setup, tr("Setup"), tr("Network setup: frequency, Z0, start/goal impedance (S)"));
+    networkBar->addAction(setup);
+
     auto* match = action(network, tr("MatchMe wizard..."), QKeySequence("W"), "matchWizard", [this] {
         const auto value = matchWizard(this, document_);
         if (value) change([&](rf::Document& d) { d = *value; });
     });
+    describe(match, tr("MatchMe"), tr("MatchMe wizard (W)"));
+    synthesisBar->addAction(match);
+
     auto* filter = action(network, tr("Simple filter wizard..."), QKeySequence("Ctrl+W"), "filterWizard", [this] {
         const auto value = filterWizard(this, document_);
         if (value) change([&](rf::Document& d) { d = *value; });
     });
-    toolbar->addAction(match);
-    toolbar->addAction(filter);
+    describe(filter, tr("Filter"), tr("Simple filter wizard (Ctrl+W)"));
+    synthesisBar->addAction(filter);
+
     auto* response = action(network, tr("Frequency response..."), QKeySequence("Ctrl+J"),
                             "frequencyResponse", [this] { showFrequencyResponse(); });
-    toolbar->addAction(response);
+    describe(response, tr("Frequency response"), tr("Show the frequency response panel (Ctrl+J)"));
+    networkBar->addAction(response);
+
     action(view, tr("Frequency response..."), {}, "viewFrequencyResponse",
            [this] { showFrequencyResponse(); });
     action(network, tr("Microstrip calculator / add element..."), {}, "microstripCalculator",
@@ -169,11 +197,15 @@ void MainWindow::buildActions()
             {rf::Kind::Transformer, "I"}, {rf::Kind::Coax, "K"}, {rf::Kind::Microstrip, "B"}}) {
         auto* a = action(add, QString::fromStdString(rf::kindName(entry.first)) + "...",
             QKeySequence(entry.second), "add" + entry.second, [this, kind = entry.first] { addComponent(kind); });
-        toolbar->addAction(a);
+        const auto name = QString::fromStdString(rf::kindName(entry.first));
+        describe(a, name, tr("Add %1 (%2)").arg(name.toLower(), entry.second));
+        componentBar->addAction(a);
     }
-    toolbar->addSeparator();
-    toolbar->addAction(editAction_);
-    toolbar->addAction(deleteAction_);
+    describe(editAction_, tr("Edit"), tr("Edit selected component (E)"));
+    describe(deleteAction_, tr("Delete"), tr("Delete selected component (Del)"));
+    selectedBar->addAction(editAction_);
+    selectedBar->addAction(deleteAction_);
+
     const std::vector<std::pair<QString, QString>> displays{
         {"Admittance grid", "A"}, {"Magnitude / angle", "G"}, {"Sampled maximum-Q curves", "Q"},
         {"Point labels", "M"}, {"VSWR circle (chart Z0)", "V"}};
