@@ -118,7 +118,6 @@ private slots:
         auto* plot = response->findChild<ResponsePlotWidget*>();
         auto* mode = response->findChild<QComboBox*>("responseMode");
         auto* start = response->findChild<QDoubleSpinBox*>("sweepStart");
-        auto* apply = response->findChild<QPushButton*>("applySweep");
         QVERIFY(response->isVisible());
         QCOMPARE(mode->currentIndex(), 0);
         QCOMPARE(plot->samples().front().frequencyMHz, 500.0);
@@ -140,8 +139,6 @@ private slots:
         QCOMPARE(report.copy(20, responseTop, responsePng.width(), responsePng.height()), responsePng);
         // Unapplied controls must not leak into either report.
         start->setValue(700);
-        QCOMPARE(window.chartImage(), report);
-        apply->click();
         QVERIFY(window.chartImage() != report);
         response->hide();
         const auto hiddenReport = window.chartImage();
@@ -155,7 +152,6 @@ private slots:
         QVERIFY(response->findChild<QLabel*>("responseMarker")->text().contains("Terminated input S11"));
         QVERIFY(!response->findChild<QLabel*>("responseMarker")->text().contains("S21"));
         mode->setCurrentIndex(0);
-        apply->click();
         QVERIFY(response->findChild<QLabel*>("responseMarker")->text().contains("S21"));
         const auto before = window.document();
         const auto project = directory.filePath("embedded.rfs.json");
@@ -225,12 +221,10 @@ private slots:
         QCOMPARE(window.document(), before);
         auto* response = window.findChild<FrequencyResponseDialog*>();
         response->findChild<QDoubleSpinBox*>("sweepStart")->setValue(1000);
-        response->findChild<QPushButton*>("applySweep")->click();
         QVERIFY(response->findChild<ResponsePlotWidget*>()->samples().empty());
         QVERIFY_EXCEPTION_THROWN(window.chartImage(), std::invalid_argument);
         QVERIFY(response->findChild<QLabel*>("responseStatus")->text().contains("No extrapolation"));
         response->findChild<QDoubleSpinBox*>("sweepStart")->setValue(2000);
-        response->findChild<QPushButton*>("applySweep")->click();
         QVERIFY(!window.chartImage().isNull());
     }
 
@@ -291,7 +285,6 @@ private slots:
         dialog->findChild<QDoubleSpinBox*>("sweepPorts")->setValue(75);
         dialog->findChild<QSpinBox*>("sweepPoints")->setValue(101);
         dialog->findChild<QComboBox*>("sweepScale")->setCurrentIndex(1);
-        dialog->findChild<QPushButton*>("applySweep")->click();
         QCOMPARE(plot->samples().size(), std::size_t(101));
         QCOMPARE(plot->samples().front().frequencyMHz, 100.0);
         QCOMPARE(plot->samples().back().frequencyMHz, 4000.0);
@@ -303,6 +296,8 @@ private slots:
         QCOMPARE(beforeImage.width(), std::max(900, plot->width() + 40));
         QCOMPARE(beforeImage.height(), plot->height() + 240);
         dialog->findChild<QDoubleSpinBox*>("sweepStop")->setValue(8000);
+        QVERIFY(dialog->responseImage() != beforeImage);
+        dialog->findChild<QDoubleSpinBox*>("sweepStop")->setValue(4000);
         QCOMPARE(dialog->responseImage(), beforeImage);
         const auto before = window.document();
         const auto point = plot->pointForSample(2000, -30).toPoint();
@@ -372,10 +367,8 @@ private slots:
         QVERIFY(marker->text().contains("S21: 0.000 dB"));
         auto* start = dialog->findChild<QDoubleSpinBox*>("sweepStart");
         auto* stop = dialog->findChild<QDoubleSpinBox*>("sweepStop");
-        auto* apply = dialog->findChild<QPushButton*>("applySweep");
         start->setValue(2000);
         stop->setValue(2000);
-        apply->click();
         QVERIFY(plot->samples().empty());
         QVERIFY(status->text().contains("Cannot calculate"));
         QVERIFY(marker->text().isEmpty());
@@ -384,12 +377,10 @@ private slots:
         QTest::mouseClick(plot, Qt::LeftButton, Qt::NoModifier, plot->rect().center());
         QCOMPARE(window.document().frequencyMHz, frequency);
         stop->setValue(4000);
-        apply->click();
         QVERIFY(!plot->samples().empty());
         QVERIFY(marker->text().contains("outside sweep"));
         auto* ports = dialog->findChild<QDoubleSpinBox*>("sweepPorts");
         ports->setValue(75);
-        apply->click();
         action(window, "increase_Z0")->trigger();
         QCOMPARE(ports->value(), 75.0);
         action(window, "undo")->trigger();

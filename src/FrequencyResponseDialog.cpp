@@ -84,6 +84,7 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
     points_->setObjectName("sweepPoints");
     points_->setRange(2, 2001);
     points_->setValue(sweep_.points);
+    points_->setKeyboardTracking(false);
     scale_ = new QComboBox;
     scale_->setObjectName("sweepScale");
     scale_->addItems({tr("Linear"), tr("Logarithmic")});
@@ -102,11 +103,13 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
     add(2, 0, tr("Frequency scale"), scale_);
     controls->addWidget(new QLabel(tr("Response")), 3, 0);
     controls->addWidget(mode_, 3, 1, 1, 3);
-    auto* apply = new QPushButton(tr("Apply sweep"));
-    apply->setObjectName("applySweep");
-    apply->setDefault(true);
-    controls->addWidget(apply, 2, 3);
-    connect(apply, &QPushButton::clicked, this, &FrequencyResponseDialog::applySweep);
+
+    for (auto* spin : {static_cast<QDoubleSpinBox*>(start_), static_cast<QDoubleSpinBox*>(stop_), ports_})
+        connect(spin, &QDoubleSpinBox::valueChanged, this, [this] { autoApply(); });
+    connect(points_, &QSpinBox::valueChanged, this, [this] { autoApply(); });
+    connect(scale_, &QComboBox::currentIndexChanged, this, [this] { autoApply(); });
+    connect(mode_, &QComboBox::currentIndexChanged, this, [this] { autoApply(); });
+
     layout->addLayout(controls);
     status_ = new QLabel;
     status_->setObjectName("responseStatus");
@@ -130,6 +133,7 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
     auto* exportButton = buttons->addButton(tr("Export plot PNG..."), QDialogButtonBox::ActionRole);
     exportButton->setObjectName("exportResponse");
     exportButton->setAutoDefault(false);
+    buttons->button(QDialogButtonBox::Close)->setAutoDefault(false);
     connect(exportButton, &QPushButton::clicked, this, &FrequencyResponseDialog::exportPlot);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     layout->addWidget(buttons);
@@ -145,6 +149,18 @@ void FrequencyResponseDialog::applySweep()
     calculate();
 }
 
+void FrequencyResponseDialog::autoApply()
+{
+    if (updatingControls_) return;
+    // Mid-edit the range can be briefly inconsistent (e.g. start raised above stop before
+    // stop is raised). That is not an error: keep the last good plot and wait.
+    if (start_->value() > stop_->value()) {
+        status_->setText(tr("Start must be below stop; the plot updates once the range is valid."));
+        return;
+    }
+    applySweep();
+}
+
 void FrequencyResponseDialog::setNetwork(const rf::Document& document)
 {
     const bool changed = document_.components != document.components
@@ -155,7 +171,9 @@ void FrequencyResponseDialog::setNetwork(const rf::Document& document)
     document_ = document;
     if (loadChanged) {
         terminated_ = document.measuredLoad.has_value();
+        updatingControls_ = true;
         mode_->setCurrentIndex(terminated_ ? 1 : 0);
+        updatingControls_ = false;
     }
     if (changed) {
         if (rangeChanged) constrainSweep();
@@ -178,8 +196,10 @@ void FrequencyResponseDialog::constrainSweep()
             sweep_.stopMHz = range.second;
         }
     }
+    updatingControls_ = true;
     start_->setValue(sweep_.startMHz);
     stop_->setValue(sweep_.stopMHz);
+    updatingControls_ = false;
 }
 
 void FrequencyResponseDialog::calculate()
@@ -258,7 +278,7 @@ void FrequencyResponseDialog::exportPlot()
 QImage FrequencyResponseDialog::responseImage()
 {
     if (plot_->samples().empty())
-        throw std::invalid_argument(("Open Frequency response and apply a valid sweep before exporting.\n"
+        throw std::invalid_argument(("Open Frequency response.\n"
                                      + status_->text()).toStdString());
     layout()->activate();
     const auto plot = plot_->grab();

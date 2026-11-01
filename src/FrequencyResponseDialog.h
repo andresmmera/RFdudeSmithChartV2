@@ -26,6 +26,7 @@ signals:
 
 private:
     void applySweep();
+    void autoApply();
     void calculate();
     void updateMarker();
     void exportPlot();
@@ -43,4 +44,5 @@ private:
     ResponsePlotWidget* plot_;
     bool terminated_ = false;
     bool singlePoint_ = false;
+    bool updatingControls_ = false;
 };
