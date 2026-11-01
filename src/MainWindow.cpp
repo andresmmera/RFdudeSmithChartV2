@@ -12,6 +12,7 @@
 #include <QAction>
 #include <QCloseEvent>
 #include <QCoreApplication>
+#include <QDockWidget>
 #include <QDir>
 #include <QFileDialog>
 #include <QFile>
@@ -321,7 +322,17 @@ void MainWindow::refresh()
 void MainWindow::ensureFrequencyResponse()
 {
     if (!response_) {
-        response_ = new FrequencyResponseDialog(document_, this);
+        // The response view is a dock panel so it can sit next to the Smith chart and
+        // update live while the network is edited. It can still be floated or moved.
+        response_ = new FrequencyResponseDialog(document_);
+        responseDock_ = new QDockWidget(tr("Frequency response"), this);
+        responseDock_->setObjectName("frequencyResponseDock");
+        responseDock_->setAllowedAreas(Qt::AllDockWidgetAreas);
+        responseDock_->setWidget(response_);
+        addDockWidget(Qt::RightDockWidgetArea, responseDock_);
+        resizeDocks({responseDock_}, {620}, Qt::Horizontal);
+        responseDock_->hide();
+        connect(response_, &QDialog::rejected, responseDock_, &QWidget::hide);
         connect(response_, &FrequencyResponseDialog::frequencySelected, this, [this](double frequency) {
             change([frequency](rf::Document& d) { d.frequencyMHz = frequency; });
         });
@@ -333,9 +344,16 @@ void MainWindow::ensureFrequencyResponse()
 void MainWindow::showFrequencyResponse()
 {
     ensureFrequencyResponse();
+    responseDock_->show();
     response_->show();
-    response_->raise();
-    response_->activateWindow();
+    responseDock_->raise();
+}
+
+void MainWindow::showResponsePanel()
+{
+    const bool first = !response_;
+    showFrequencyResponse();
+    if (first && !isMaximized() && !isFullScreen()) resize(width() + 620, height());
 }
 
 bool MainWindow::change(const std::function<void(rf::Document&)>& mutation)

@@ -12,6 +12,7 @@ class SmithChartWidget;
 class SchematicWidget;
 class FrequencyResponseDialog;
 class QAction;
+class QDockWidget;
 
 class MainWindow final : public QMainWindow
 {
@@ -25,6 +26,8 @@ public:
     bool isModified() const;
     QImage chartImage();
     bool importTouchstone(const QString& path);
+    // Docks the frequency response beside the Smith chart (widening the window if needed).
+    void showResponsePanel();
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -63,6 +66,7 @@ private:
     SmithChartWidget* chart_;
     SchematicWidget* schematic_;
     FrequencyResponseDialog* response_ = nullptr;
+    QDockWidget* responseDock_ = nullptr;
     QTableWidget* table_;
     QLabel* summary_;
     QLabel* metrics_;

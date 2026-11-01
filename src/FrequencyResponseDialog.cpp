@@ -43,8 +43,8 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
 {
     setObjectName("frequencyResponse");
     setWindowTitle(tr("Frequency response - S parameters"));
-    resize(1000, 720);
-    setMinimumWidth(760);
+    resize(620, 720);
+    setMinimumWidth(420);
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(16, 16, 16, 16);
     layout->setSpacing(10);
@@ -121,7 +121,7 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
     exportButton->setObjectName("exportResponse");
     exportButton->setAutoDefault(false);
     connect(exportButton, &QPushButton::clicked, this, &FrequencyResponseDialog::exportPlot);
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::hide);
+    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     layout->addWidget(buttons);
     connect(plot_, &ResponsePlotWidget::frequencySelected, this, &FrequencyResponseDialog::frequencySelected);
     calculate();
