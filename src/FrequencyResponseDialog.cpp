@@ -1,5 +1,6 @@
 #include "FrequencyResponseDialog.h"
 
+#include "FrequencySpinBox.h"
 #include "ResponsePlotWidget.h"
 #include "Touchstone.h"
 
@@ -28,6 +29,14 @@ QDoubleSpinBox* field(const QString& name, double value, QWidget* parent)
     spin->setRange(1e-9, 1e12);
     spin->setValue(value);
     spin->setKeyboardTracking(false);
+    return spin;
+}
+
+FrequencySpinBox* frequencyField(const QString& name, double valueMHz)
+{
+    auto* spin = new FrequencySpinBox;
+    spin->setObjectName(name);
+    spin->setValue(valueMHz);
     return spin;
 }
 
@@ -67,8 +76,8 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
         sweep_.stopMHz = range.second;
     }
     terminated_ = document.measuredLoad.has_value();
-    start_ = field("sweepStart", sweep_.startMHz, this);
-    stop_ = field("sweepStop", sweep_.stopMHz, this);
+    start_ = frequencyField("sweepStart", sweep_.startMHz);
+    stop_ = frequencyField("sweepStop", sweep_.stopMHz);
     ports_ = field("sweepPorts", sweep_.portOhms, this);
     ports_->setToolTip(tr("Equal real reference impedance at both ports; independent of chart Z0 after opening."));
     points_ = new QSpinBox;
@@ -86,16 +95,17 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
         controls->addWidget(new QLabel(text), row, column);
         controls->addWidget(widget, row, column + 1);
     };
-    add(0, 0, tr("Start (MHz)"), start_);
-    add(0, 2, tr("Stop (MHz)"), stop_);
-    add(0, 4, tr("Points"), points_);
-    add(1, 0, tr("Port reference (ohm)"), ports_);
-    add(1, 2, tr("Frequency scale"), scale_);
-    add(2, 0, tr("Response"), mode_);
+    add(0, 0, tr("Start"), frequencyEditor(start_));
+    add(0, 2, tr("Stop"), frequencyEditor(stop_));
+    add(1, 0, tr("Points"), points_);
+    add(1, 2, tr("Port reference (ohm)"), ports_);
+    add(2, 0, tr("Frequency scale"), scale_);
+    controls->addWidget(new QLabel(tr("Response")), 3, 0);
+    controls->addWidget(mode_, 3, 1, 1, 3);
     auto* apply = new QPushButton(tr("Apply sweep"));
     apply->setObjectName("applySweep");
     apply->setDefault(true);
-    controls->addWidget(apply, 1, 5);
+    controls->addWidget(apply, 2, 3);
     connect(apply, &QPushButton::clicked, this, &FrequencyResponseDialog::applySweep);
     layout->addLayout(controls);
     status_ = new QLabel;

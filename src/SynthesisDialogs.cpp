@@ -1,4 +1,5 @@
 #include "SynthesisDialogs.h"
+#include "FrequencySpinBox.h"
 
 #include "Editors.h"
 #include "SmithChartWidget.h"
@@ -138,7 +139,7 @@ std::optional<rf::Document> matchWizard(QWidget* parent, const rf::Document& doc
     auto* startX = field(form, "Starting reactance (ohm)", "matchStartX", document.startOhms.imag(), -1e12);
     auto* goalR = field(form, "Goal resistance (ohm)", "matchGoalR", document.goalOhms.real());
     auto* goalX = field(form, "Goal reactance (ohm)", "matchGoalX", document.goalOhms.imag(), -1e12);
-    auto* frequency = field(form, "Design frequency (MHz)", "matchFrequency", document.frequencyMHz);
+    auto* frequency = addFrequencyRow(form, "Design frequency", "matchFrequency", document.frequencyMHz);
     auto* note = new QLabel("Legacy MatchMe: equal-ratio resistance steps, with series reactance "
                            "compensation at the ends. Uses start/goal settings, not the selected row. "
                            "Equal resistances are preserved; no example load is substituted.");
@@ -167,7 +168,7 @@ std::optional<rf::Document> filterWizard(QWidget* parent, const rf::Document& do
     auto* type = choices(form, "Chebyshev topology", "filterType", {"Low-pass", "High-pass"});
     auto* orientation = choices(form, "First element (from starting impedance)", "filterFirst",
                                 {"Shunt", "Series"});
-    auto* cutoff = field(form, "Ripple cutoff (MHz)", "filterCutoff", document.frequencyMHz);
+    auto* cutoff = addFrequencyRow(form, "Ripple cutoff", "filterCutoff", document.frequencyMHz);
     auto* ripple = field(form, "Passband ripple / loss at cutoff (dB)", "filterRipple", 0.1, 1e-4, 10);
     auto* order = new QSpinBox;
     order->setObjectName("filterOrder");

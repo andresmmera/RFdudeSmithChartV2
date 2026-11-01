@@ -50,6 +50,8 @@ add_library(rfui
     src/Editors.h
     src/FrequencyResponseDialog.cpp
     src/FrequencyResponseDialog.h
+    src/FrequencySpinBox.cpp
+    src/FrequencySpinBox.h
     src/ResponsePlotWidget.cpp
     src/ResponsePlotWidget.h
     src/LtspiceExport.cpp

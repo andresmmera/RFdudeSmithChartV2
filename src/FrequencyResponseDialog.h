@@ -7,6 +7,7 @@
 
 class QDoubleSpinBox;
 class QSpinBox;
+class FrequencySpinBox;
 class QComboBox;
 class QLabel;
 class ResponsePlotWidget;
@@ -31,8 +32,8 @@ private:
     void constrainSweep();
     rf::Document document_;
     rf::Sweep sweep_;
-    QDoubleSpinBox* start_;
-    QDoubleSpinBox* stop_;
+    FrequencySpinBox* start_;
+    FrequencySpinBox* stop_;
     QDoubleSpinBox* ports_;
     QSpinBox* points_;
     QComboBox* scale_;

@@ -1,4 +1,5 @@
 #include "Editors.h"
+#include "FrequencySpinBox.h"
 #include "Touchstone.h"
 
 #include <QComboBox>
@@ -214,7 +215,7 @@ std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component&
     auto* capacitance = field(form, "Capacitance (pF)", original.capacitancePf, "capacitance");
     auto* lineOhms = field(form, "Line impedance (ohm)", original.lineOhms, "lineOhms");
     auto* length = field(form, "Electrical length (deg)", original.lengthDegrees, "length", 0, 36000);
-    auto* reference = field(form, "Length reference (MHz)", original.referenceMHz, "lineFrequency");
+    auto* reference = addFrequencyRow(form, "Length reference", "lineFrequency", original.referenceMHz);
     auto* ratio = field(form, "Turns ratio (source : load = N : 1)", original.turnsRatio,
                         "turnsRatio", 1e-6, 1e6);
     auto* lengthMode = new QComboBox;
@@ -301,7 +302,7 @@ std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component&
         form->setRowVisible(lengthMode, coax || strip);
         form->setRowVisible(length, line && (k == rf::Kind::Line || lengthMode->currentIndex() == 0));
         form->setRowVisible(physical, (coax || strip) && lengthMode->currentIndex() == 1);
-        form->setRowVisible(reference, line);
+        form->setRowVisible(reference->parentWidget(), line);
         form->setRowVisible(ratio, transformer);
         form->setRowVisible(velocityMode, coax);
         form->setRowVisible(velocity, coax && velocityMode->currentIndex() == 0);
@@ -450,7 +451,7 @@ std::optional<rf::Document> editSettings(QWidget* parent, const rf::Document& or
     auto* title = new QLineEdit(QString::fromStdString(original.title));
     title->setObjectName("networkTitle");
     form->addRow("Title", title);
-    auto* frequency = field(form, "Frequency (MHz)", original.frequencyMHz, "frequency");
+    auto* frequency = addFrequencyRow(form, "Frequency", "frequency", original.frequencyMHz);
     auto* z0 = field(form, "Chart reference Z0 (ohm)", original.referenceOhms, "z0");
     auto* startR = field(form, "Starting resistance (ohm)", original.startOhms.real(), "startR", 0);
     auto* startX = field(form, "Starting reactance (ohm)", original.startOhms.imag(), "startX", -1e12);
@@ -470,8 +471,8 @@ std::optional<rf::Document> editSettings(QWidget* parent, const rf::Document& or
     auto* step = field(form, "Tuning step (%)", original.tunePercent, "step", 0.000001, 99.999);
     std::array<QDoubleSpinBox*, 3> presets{};
     for (int i = 0; i < 3; ++i)
-        presets[static_cast<std::size_t>(i)] = field(form, QString("F%1 preset (MHz)").arg(i + 1),
-            original.frequencyPresets[static_cast<std::size_t>(i)], QString("preset%1").arg(i + 1));
+        presets[static_cast<std::size_t>(i)] = addFrequencyRow(form, QString("F%1 preset").arg(i + 1),
+                                               QString("preset%1").arg(i + 1), original.frequencyPresets[static_cast<std::size_t>(i)]);
     auto* box = buttons(dialog, layout);
     auto result = original;
     QObject::connect(box, &QDialogButtonBox::accepted, &dialog, [&] {
