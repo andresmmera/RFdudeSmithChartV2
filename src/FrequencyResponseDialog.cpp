@@ -75,7 +75,7 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
         sweep_.startMHz = range.first;
         sweep_.stopMHz = range.second;
     }
-    terminated_ = document.measuredLoad.has_value();
+    terminated_ = true; // S11 view should be the default. The S11/S21/S22 will be correct only when the load is terminated with the same impedance as the source.
     start_ = frequencyField("sweepStart", sweep_.startMHz);
     stop_ = frequencyField("sweepStop", sweep_.stopMHz);
     ports_ = field("sweepPorts", sweep_.portOhms, this);
@@ -169,10 +169,11 @@ void FrequencyResponseDialog::setNetwork(const rf::Document& document)
     const bool rangeChanged = rf::measuredFrequencyRange(document_) != rf::measuredFrequencyRange(document);
     const bool loadChanged = document_.measuredLoad.has_value() != document.measuredLoad.has_value();
     document_ = document;
-    if (loadChanged) {
-        terminated_ = document.measuredLoad.has_value();
+    if (loadChanged && document.measuredLoad) {
+        // A measured load only exists in the terminated view; removing it leaves the mode as is.
+        terminated_ = true;
         updatingControls_ = true;
-        mode_->setCurrentIndex(terminated_ ? 1 : 0);
+        mode_->setCurrentIndex(1);
         updatingControls_ = false;
     }
     if (changed) {
@@ -312,4 +313,8 @@ QImage FrequencyResponseDialog::responseImage()
     painter.drawText(QRect(margin, plotSize.height() + 140, width - 2 * margin, 80),
                      Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, marker_->text());
     return image;
+}
+
+void FrequencyResponseDialog::setTerminated(bool terminated){
+    mode_->setCurrentIndex(terminated ? 1 : 0);  // recalculates through autoApply()
 }

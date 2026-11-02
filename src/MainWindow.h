@@ -67,6 +67,7 @@ private:
     SchematicWidget* schematic_;
     FrequencyResponseDialog* response_ = nullptr;
     QDockWidget* responseDock_ = nullptr;
+    bool twoPortResponse_ = false;  // set by the filter wizard; applied when the panel is created
     QTableWidget* table_;
     QLabel* summary_;
     QLabel* metrics_;

@@ -119,7 +119,9 @@ private slots:
         auto* mode = response->findChild<QComboBox*>("responseMode");
         auto* start = response->findChild<QDoubleSpinBox*>("sweepStart");
         QVERIFY(response->isVisible());
-        QCOMPARE(mode->currentIndex(), 0);
+
+        QCOMPARE(mode->currentIndex(), 1);  // default view is terminated S11
+        mode->setCurrentIndex(0);           // this test checks the two-port view first
         QCOMPARE(plot->samples().front().frequencyMHz, 500.0);
         QCOMPARE(plot->samples().back().frequencyMHz, 1500.0);
         QVERIFY(plot->pointForSample(1000, 10).y() < plot->pointForSample(1000, 0).y());
@@ -278,6 +280,9 @@ private slots:
         auto* plot = dialog->findChild<ResponsePlotWidget*>();
         auto* marker = dialog->findChild<QLabel*>("responseMarker");
         QVERIFY(plot && marker);
+        auto* mode = dialog->findChild<QComboBox*>("responseMode");
+        QCOMPARE(mode->currentIndex(), 1);  // default view is terminated S11
+        mode->setCurrentIndex(0);           // the checks below use the two-port view
         QCOMPARE(plot->samples().size(), std::size_t(401));
         QVERIFY(!window.isModified());
         dialog->findChild<QDoubleSpinBox*>("sweepStart")->setValue(100);
@@ -362,6 +367,7 @@ private slots:
         auto* plot = dialog->findChild<ResponsePlotWidget*>();
         auto* marker = dialog->findChild<QLabel*>("responseMarker");
         auto* status = dialog->findChild<QLabel*>("responseStatus");
+        dialog->findChild<QComboBox*>("responseMode")->setCurrentIndex(0);  // two-port view
         QCOMPARE(plot->samples().front().s.s21, rf::Complex(1));
         QVERIFY(marker->text().contains("S11: -inf dB"));
         QVERIFY(marker->text().contains("S21: 0.000 dB"));

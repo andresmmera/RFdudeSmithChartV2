@@ -172,7 +172,12 @@ void MainWindow::buildActions()
 
     auto* filter = action(network, tr("Simple filter wizard..."), QKeySequence("Ctrl+W"), "filterWizard", [this] {
         const auto value = filterWizard(this, document_);
-        if (value) change([&](rf::Document& d) { d = *value; });
+        if (value) {
+            change([&](rf::Document& d) { d = *value; });
+            // A filter is judged by its transmission, so show the two-port response.
+            twoPortResponse_ = true;
+            if (response_) response_->setTerminated(false);
+        }
     });
     describe(filter, tr("Filter"), tr("Simple filter wizard (Ctrl+W)"));
     synthesisBar->addAction(filter);
@@ -365,6 +370,9 @@ void MainWindow::ensureFrequencyResponse()
         resizeDocks({responseDock_}, {620}, Qt::Horizontal);
         responseDock_->hide();
         connect(response_, &QDialog::rejected, responseDock_, &QWidget::hide);
+        if (twoPortResponse_) {
+            response_->setTerminated(false);
+        }
         connect(response_, &FrequencyResponseDialog::frequencySelected, this, [this](double frequency) {
             change([frequency](rf::Document& d) { d.frequencyMHz = frequency; });
         });

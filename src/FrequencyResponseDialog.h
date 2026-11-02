@@ -18,6 +18,11 @@ class FrequencyResponseDialog final : public QDialog
 
 public:
     explicit FrequencyResponseDialog(const rf::Document& document, QWidget* parent = nullptr);
+
+    /// @brief Select the type of termination
+    /// @param terminated: True for S11 only
+    ///                    False for S11/S21/S22
+    void setTerminated(bool terminated);
     void setNetwork(const rf::Document& document);
     QImage responseImage();
 
