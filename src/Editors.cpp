@@ -104,11 +104,12 @@ protected:
 };
 
 QDoubleSpinBox* field(QFormLayout* form, const QString& label, double value,
-                      const QString& name, double minimum = 1e-9, double maximum = 1e12)
+                      const QString& name, double minimum = 1e-9, double maximum = 1e12,
+                      int decimals = 1)
 {
     auto* result = new QDoubleSpinBox;
     result->setObjectName(name);
-    result->setDecimals(1);
+    result->setDecimals(decimals);
     result->setRange(minimum, maximum);
     result->setValue(value);
     result->setKeyboardTracking(false);
@@ -232,9 +233,9 @@ std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component&
     auto* velocity = field(form, "Velocity factor (v/c)", original.velocityFactor, "velocityFactor", 1e-9, 1);
     auto* dielectric = field(form, "Coax dielectric constant", original.dielectricConstant, "dielectricConstant", 1, 128);
     auto* height = field(form, "Substrate height (mm)", original.substrateHeightMm, "substrateHeight", 1e-6, 1e6);
-    auto* width = field(form, "Strip width (mm)", original.stripWidthMm, "stripWidth", 1e-6, 1e8);
-    auto* dk = field(form, "Substrate Dk", original.substrateDk, "substrateDk", 1, 128);
-    auto* df = field(form, "Loss tangent / DF", original.lossTangent, "lossTangent", 0, 0.1);
+    auto* width = field(form, "Strip width (mm)", original.stripWidthMm, "stripWidth", 1e-6, 1e8, 2);
+    auto* dk = field(form, "Substrate Dk", original.substrateDk, "substrateDk", 1, 128, 1);
+    auto* df = field(form, "Loss tangent / DF", original.lossTangent, "lossTangent", 0, 0.1, 2);
     auto* target = field(form, "Target impedance (ohm)", original.lineOhms, "targetImpedance");
     auto* solve = new QPushButton("Calculate width from target impedance");
     solve->setObjectName("calculateWidth");
@@ -273,11 +274,19 @@ std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component&
         const auto append = [&](QWidget* control) {
             if (control) controls.push_back(control);
         };
+        const auto isControl = [](QWidget* w) {
+            return qobject_cast<QComboBox*>(w) || qobject_cast<QDoubleSpinBox*>(w);
+        };
         for (int row = 0; row < form->rowCount(); ++row) {
-            if (auto* item = form->itemAt(row, QFormLayout::FieldRole)) {
-                auto* widget = item->widget();
-                if (qobject_cast<QComboBox*>(widget) || qobject_cast<QDoubleSpinBox*>(widget))
-                    append(widget);
+            auto* item = form->itemAt(row, QFormLayout::FieldRole);
+            auto* widget = item ? item->widget() : nullptr;
+            if (!widget) continue;
+            if (isControl(widget)) {
+                append(widget);
+            } else {
+                // Frequency rows wrap a spin box and its unit combo: spin first, then combo.
+                for (auto* child : widget->findChildren<QWidget*>(Qt::FindDirectChildrenOnly))
+                    if (isControl(child)) append(child);
             }
         }
         dialog.tabControls = std::move(controls);

@@ -281,9 +281,17 @@ QImage FrequencyResponseDialog::responseImage()
     if (plot_->samples().empty())
         throw std::invalid_argument(("Open Frequency response.\n"
                                      + status_->text()).toStdString());
-    layout()->activate();
+
+    // Export at a fixed plot size so the PNG does not depend on the docked panel's size.
+    const QSize plotSize(900, 460);
+    const auto savedMinimum = plot_->minimumSize();
+    const auto savedMaximum = plot_->maximumSize();
+    plot_->setFixedSize(plotSize);
     const auto plot = plot_->grab();
-    const auto plotSize = plot_->size();
+    plot_->setMinimumSize(savedMinimum);
+    plot_->setMaximumSize(savedMaximum);
+    layout()->activate();  // put the on-screen plot back before returning to the event loop
+
     const int margin = 20;
     const int width = std::max(900, plotSize.width() + 2 * margin);
     QString header = tr("%1\nFrequency response: %2 - %3 MHz, %4, %5 points; both ports %6 ohm\n"
