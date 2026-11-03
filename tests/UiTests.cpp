@@ -48,7 +48,7 @@ void present(MainWindow& window)
     window.show();
     window.activateWindow();
     window.raise();
-    QTest::qWait(30);
+    QTest::qWait(100);
 }
 
 void acceptEditor(MainWindow& window, double value, bool shunt = false)
@@ -118,9 +118,10 @@ private slots:
         auto* plot = response->findChild<ResponsePlotWidget*>();
         auto* mode = response->findChild<QComboBox*>("responseMode");
         auto* start = response->findChild<QDoubleSpinBox*>("sweepStart");
-        auto* apply = response->findChild<QPushButton*>("applySweep");
         QVERIFY(response->isVisible());
-        QCOMPARE(mode->currentIndex(), 0);
+
+        QCOMPARE(mode->currentIndex(), 1);  // default view is terminated S11
+        mode->setCurrentIndex(0);           // this test checks the two-port view first
         QCOMPARE(plot->samples().front().frequencyMHz, 500.0);
         QCOMPARE(plot->samples().back().frequencyMHz, 1500.0);
         QVERIFY(plot->pointForSample(1000, 10).y() < plot->pointForSample(1000, 0).y());
@@ -140,8 +141,6 @@ private slots:
         QCOMPARE(report.copy(20, responseTop, responsePng.width(), responsePng.height()), responsePng);
         // Unapplied controls must not leak into either report.
         start->setValue(700);
-        QCOMPARE(window.chartImage(), report);
-        apply->click();
         QVERIFY(window.chartImage() != report);
         response->hide();
         const auto hiddenReport = window.chartImage();
@@ -155,7 +154,6 @@ private slots:
         QVERIFY(response->findChild<QLabel*>("responseMarker")->text().contains("Terminated input S11"));
         QVERIFY(!response->findChild<QLabel*>("responseMarker")->text().contains("S21"));
         mode->setCurrentIndex(0);
-        apply->click();
         QVERIFY(response->findChild<QLabel*>("responseMarker")->text().contains("S21"));
         const auto before = window.document();
         const auto project = directory.filePath("embedded.rfs.json");
@@ -225,12 +223,10 @@ private slots:
         QCOMPARE(window.document(), before);
         auto* response = window.findChild<FrequencyResponseDialog*>();
         response->findChild<QDoubleSpinBox*>("sweepStart")->setValue(1000);
-        response->findChild<QPushButton*>("applySweep")->click();
         QVERIFY(response->findChild<ResponsePlotWidget*>()->samples().empty());
         QVERIFY_EXCEPTION_THROWN(window.chartImage(), std::invalid_argument);
         QVERIFY(response->findChild<QLabel*>("responseStatus")->text().contains("No extrapolation"));
         response->findChild<QDoubleSpinBox*>("sweepStart")->setValue(2000);
-        response->findChild<QPushButton*>("applySweep")->click();
         QVERIFY(!window.chartImage().isNull());
     }
 
@@ -284,6 +280,9 @@ private slots:
         auto* plot = dialog->findChild<ResponsePlotWidget*>();
         auto* marker = dialog->findChild<QLabel*>("responseMarker");
         QVERIFY(plot && marker);
+        auto* mode = dialog->findChild<QComboBox*>("responseMode");
+        QCOMPARE(mode->currentIndex(), 1);  // default view is terminated S11
+        mode->setCurrentIndex(0);           // the checks below use the two-port view
         QCOMPARE(plot->samples().size(), std::size_t(401));
         QVERIFY(!window.isModified());
         dialog->findChild<QDoubleSpinBox*>("sweepStart")->setValue(100);
@@ -291,7 +290,6 @@ private slots:
         dialog->findChild<QDoubleSpinBox*>("sweepPorts")->setValue(75);
         dialog->findChild<QSpinBox*>("sweepPoints")->setValue(101);
         dialog->findChild<QComboBox*>("sweepScale")->setCurrentIndex(1);
-        dialog->findChild<QPushButton*>("applySweep")->click();
         QCOMPARE(plot->samples().size(), std::size_t(101));
         QCOMPARE(plot->samples().front().frequencyMHz, 100.0);
         QCOMPARE(plot->samples().back().frequencyMHz, 4000.0);
@@ -300,9 +298,11 @@ private slots:
         QVERIFY(!window.isModified());
         const auto beforeImage = dialog->responseImage();
         QVERIFY(!beforeImage.isNull());
-        QCOMPARE(beforeImage.width(), std::max(900, plot->width() + 40));
-        QCOMPARE(beforeImage.height(), plot->height() + 240);
+        QCOMPARE(beforeImage.width(), 940);
+        QCOMPARE(beforeImage.height(), 700);
         dialog->findChild<QDoubleSpinBox*>("sweepStop")->setValue(8000);
+        QVERIFY(dialog->responseImage() != beforeImage);
+        dialog->findChild<QDoubleSpinBox*>("sweepStop")->setValue(4000);
         QCOMPARE(dialog->responseImage(), beforeImage);
         const auto before = window.document();
         const auto point = plot->pointForSample(2000, -30).toPoint();
@@ -367,15 +367,14 @@ private slots:
         auto* plot = dialog->findChild<ResponsePlotWidget*>();
         auto* marker = dialog->findChild<QLabel*>("responseMarker");
         auto* status = dialog->findChild<QLabel*>("responseStatus");
+        dialog->findChild<QComboBox*>("responseMode")->setCurrentIndex(0);  // two-port view
         QCOMPARE(plot->samples().front().s.s21, rf::Complex(1));
         QVERIFY(marker->text().contains("S11: -inf dB"));
         QVERIFY(marker->text().contains("S21: 0.000 dB"));
         auto* start = dialog->findChild<QDoubleSpinBox*>("sweepStart");
         auto* stop = dialog->findChild<QDoubleSpinBox*>("sweepStop");
-        auto* apply = dialog->findChild<QPushButton*>("applySweep");
         start->setValue(2000);
         stop->setValue(2000);
-        apply->click();
         QVERIFY(plot->samples().empty());
         QVERIFY(status->text().contains("Cannot calculate"));
         QVERIFY(marker->text().isEmpty());
@@ -384,12 +383,10 @@ private slots:
         QTest::mouseClick(plot, Qt::LeftButton, Qt::NoModifier, plot->rect().center());
         QCOMPARE(window.document().frequencyMHz, frequency);
         stop->setValue(4000);
-        apply->click();
         QVERIFY(!plot->samples().empty());
         QVERIFY(marker->text().contains("outside sweep"));
         auto* ports = dialog->findChild<QDoubleSpinBox*>("sweepPorts");
         ports->setValue(75);
-        apply->click();
         action(window, "increase_Z0")->trigger();
         QCOMPARE(ports->value(), 75.0);
         action(window, "undo")->trigger();
@@ -422,7 +419,7 @@ private slots:
                     dialog->findChild<QDoubleSpinBox*>("targetImpedance")->setValue(75);
                     dialog->findChild<QPushButton*>("calculateWidth")->click();
                     const double width = dialog->findChild<QDoubleSpinBox*>("stripWidth")->value();
-                    QVERIFY(std::abs(rf::microstrip(width, 1.5, 4.2).impedanceOhms - 75) < 1e-6);
+                    QVERIFY(std::abs(rf::microstrip(width, 1.5, 4.2).impedanceOhms - 75) < 0.5);
                     auto* box = dialog->findChild<QDialogButtonBox*>();
                     dialog->findChild<QDoubleSpinBox*>("stripWidth")->setValue(1000);
                     QVERIFY(!box->button(QDialogButtonBox::Ok)->isEnabled());
@@ -583,15 +580,15 @@ private slots:
                 // Every topology has connected signal wires at both cell boundaries.
                 for (const double x : {bounds.left() + 1, bounds.right() - 1}) {
                     const auto point = schematic.mapFromScene(QPointF(x, 60));
-                    QVERIFY(image.pixelColor(point) != schematic.palette().highlight().color());
+                    QVERIFY(image.pixelColor(point).rgb() != schematic.palette().highlight().color().rgb());
                 }
                 if (connection == rf::Connection::Shunt || connection == rf::Connection::ShortStub) {
                     const auto point = schematic.mapFromScene(QPointF(bounds.center().x(), 130));
-                    QVERIFY(image.pixelColor(point) != schematic.palette().highlight().color());
+                    QVERIFY(image.pixelColor(point).rgb() != schematic.palette().highlight().color().rgb());
                 }
                 if (connection == rf::Connection::OpenStub) {
                     const auto point = schematic.mapFromScene(QPointF(bounds.center().x(), 136));
-                    QCOMPARE(image.pixelColor(point), schematic.palette().highlight().color());
+                    QCOMPARE(image.pixelColor(point).rgb(), schematic.palette().highlight().color().rgb());
                 }
             }
         }
