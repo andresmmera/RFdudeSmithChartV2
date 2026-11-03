@@ -1,4 +1,5 @@
 #include "Editors.h"
+#include "FrequencySpinBox.h"
 #include "Touchstone.h"
 
 #include <QComboBox>
@@ -103,11 +104,12 @@ protected:
 };
 
 QDoubleSpinBox* field(QFormLayout* form, const QString& label, double value,
-                      const QString& name, double minimum = 1e-9, double maximum = 1e12)
+                      const QString& name, double minimum = 1e-9, double maximum = 1e12,
+                      int decimals = 1)
 {
     auto* result = new QDoubleSpinBox;
     result->setObjectName(name);
-    result->setDecimals(9);
+    result->setDecimals(decimals);
     result->setRange(minimum, maximum);
     result->setValue(value);
     result->setKeyboardTracking(false);
@@ -214,7 +216,7 @@ std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component&
     auto* capacitance = field(form, "Capacitance (pF)", original.capacitancePf, "capacitance");
     auto* lineOhms = field(form, "Line impedance (ohm)", original.lineOhms, "lineOhms");
     auto* length = field(form, "Electrical length (deg)", original.lengthDegrees, "length", 0, 36000);
-    auto* reference = field(form, "Length reference (MHz)", original.referenceMHz, "lineFrequency");
+    auto* reference = addFrequencyRow(form, "Length reference", "lineFrequency", original.referenceMHz);
     auto* ratio = field(form, "Turns ratio (source : load = N : 1)", original.turnsRatio,
                         "turnsRatio", 1e-6, 1e6);
     auto* lengthMode = new QComboBox;
@@ -231,9 +233,9 @@ std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component&
     auto* velocity = field(form, "Velocity factor (v/c)", original.velocityFactor, "velocityFactor", 1e-9, 1);
     auto* dielectric = field(form, "Coax dielectric constant", original.dielectricConstant, "dielectricConstant", 1, 128);
     auto* height = field(form, "Substrate height (mm)", original.substrateHeightMm, "substrateHeight", 1e-6, 1e6);
-    auto* width = field(form, "Strip width (mm)", original.stripWidthMm, "stripWidth", 1e-6, 1e8);
-    auto* dk = field(form, "Substrate Dk", original.substrateDk, "substrateDk", 1, 128);
-    auto* df = field(form, "Loss tangent / DF", original.lossTangent, "lossTangent", 0, 0.1);
+    auto* width = field(form, "Strip width (mm)", original.stripWidthMm, "stripWidth", 1e-6, 1e8, 2);
+    auto* dk = field(form, "Substrate Dk", original.substrateDk, "substrateDk", 1, 128, 1);
+    auto* df = field(form, "Loss tangent / DF", original.lossTangent, "lossTangent", 0, 0.1, 2);
     auto* target = field(form, "Target impedance (ohm)", original.lineOhms, "targetImpedance");
     auto* solve = new QPushButton("Calculate width from target impedance");
     solve->setObjectName("calculateWidth");
@@ -272,11 +274,19 @@ std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component&
         const auto append = [&](QWidget* control) {
             if (control) controls.push_back(control);
         };
+        const auto isControl = [](QWidget* w) {
+            return qobject_cast<QComboBox*>(w) || qobject_cast<QDoubleSpinBox*>(w);
+        };
         for (int row = 0; row < form->rowCount(); ++row) {
-            if (auto* item = form->itemAt(row, QFormLayout::FieldRole)) {
-                auto* widget = item->widget();
-                if (qobject_cast<QComboBox*>(widget) || qobject_cast<QDoubleSpinBox*>(widget))
-                    append(widget);
+            auto* item = form->itemAt(row, QFormLayout::FieldRole);
+            auto* widget = item ? item->widget() : nullptr;
+            if (!widget) continue;
+            if (isControl(widget)) {
+                append(widget);
+            } else {
+                // Frequency rows wrap a spin box and its unit combo: spin first, then combo.
+                for (auto* child : widget->findChildren<QWidget*>(Qt::FindDirectChildrenOnly))
+                    if (isControl(child)) append(child);
             }
         }
         dialog.tabControls = std::move(controls);
@@ -301,7 +311,7 @@ std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component&
         form->setRowVisible(lengthMode, coax || strip);
         form->setRowVisible(length, line && (k == rf::Kind::Line || lengthMode->currentIndex() == 0));
         form->setRowVisible(physical, (coax || strip) && lengthMode->currentIndex() == 1);
-        form->setRowVisible(reference, line);
+        form->setRowVisible(reference->parentWidget(), line);
         form->setRowVisible(ratio, transformer);
         form->setRowVisible(velocityMode, coax);
         form->setRowVisible(velocity, coax && velocityMode->currentIndex() == 0);
@@ -450,7 +460,7 @@ std::optional<rf::Document> editSettings(QWidget* parent, const rf::Document& or
     auto* title = new QLineEdit(QString::fromStdString(original.title));
     title->setObjectName("networkTitle");
     form->addRow("Title", title);
-    auto* frequency = field(form, "Frequency (MHz)", original.frequencyMHz, "frequency");
+    auto* frequency = addFrequencyRow(form, "Frequency", "frequency", original.frequencyMHz);
     auto* z0 = field(form, "Chart reference Z0 (ohm)", original.referenceOhms, "z0");
     auto* startR = field(form, "Starting resistance (ohm)", original.startOhms.real(), "startR", 0);
     auto* startX = field(form, "Starting reactance (ohm)", original.startOhms.imag(), "startX", -1e12);
@@ -470,8 +480,8 @@ std::optional<rf::Document> editSettings(QWidget* parent, const rf::Document& or
     auto* step = field(form, "Tuning step (%)", original.tunePercent, "step", 0.000001, 99.999);
     std::array<QDoubleSpinBox*, 3> presets{};
     for (int i = 0; i < 3; ++i)
-        presets[static_cast<std::size_t>(i)] = field(form, QString("F%1 preset (MHz)").arg(i + 1),
-            original.frequencyPresets[static_cast<std::size_t>(i)], QString("preset%1").arg(i + 1));
+        presets[static_cast<std::size_t>(i)] = addFrequencyRow(form, QString("F%1 preset").arg(i + 1),
+                                               QString("preset%1").arg(i + 1), original.frequencyPresets[static_cast<std::size_t>(i)]);
     auto* box = buttons(dialog, layout);
     auto result = original;
     QObject::connect(box, &QDialogButtonBox::accepted, &dialog, [&] {

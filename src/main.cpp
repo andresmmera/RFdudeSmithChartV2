@@ -23,6 +23,7 @@ int main(int argc, char* argv[])
     const auto files = parser.positionalArguments();
     if (files.size() > 1) parser.showHelp(1);
     if (!files.isEmpty() && !window.openDocument(files.front())) return 1;
+    window.showResponsePanel();
     window.show();
 
     return application.exec();
