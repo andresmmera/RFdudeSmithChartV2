@@ -143,13 +143,40 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p '*Tests.py'
           python3 tools/check_linux_package.py packages/*.deb
+      - name: Build and validate Linux AppImage
+        id: appimage
+        if: ${{ success() && runner.os == 'Linux' && steps.linux-package-check.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          appimagetool_sha256=62aebc77c2149e96b593b94da9bbd1881e0984a56399ff6d7a03b7ddd7c9ce68
+          runtime_sha256=617aa77314d57c8b8e4fae9c3f0b35af7b30d5529cb69e98f64f92510ed98a46
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            --output appimagetool.AppImage
+          echo "$appimagetool_sha256  appimagetool.AppImage" | sha256sum --check
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 \
+            --output runtime-x86_64
+          echo "$runtime_sha256  runtime-x86_64" | sha256sum --check
+          chmod +x appimagetool.AppImage
+
+          version="$(python3 -c 'import re; from pathlib import Path; text = Path("CMakeLists.txt").read_text(); match = re.search(r"^\s*VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)\s*$", text, re.MULTILINE); print(match.group(1) if match else exit("Could not read the project version from CMakeLists.txt"))')"
+          cmake --install build --config Release --prefix "$PWD/AppDir/usr"
+          install -m 755 packaging/linux/AppRun AppDir/AppRun
+          mkdir -p packages
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 VERSION="$version" ./appimagetool.AppImage \
+            --runtime-file "$PWD/runtime-x86_64" AppDir \
+            "packages/RFdudeSmithChartV2-$version-linux-x64.AppImage"
+          python3 tools/check_appimage.py packages/*.AppImage
       - name: Upload package artifact
-        if: ${{ always() && steps.package.outcome == 'success' && (runner.os != 'Linux' || steps.linux-package-check.outcome == 'success') && (runner.os != 'Windows' || steps.installer.outcome == 'success') && (runner.os != 'macOS' || steps.macos-package-name.outcome == 'success') }}
+        if: ${{ always() && steps.package.outcome == 'success' && (runner.os != 'Linux' || (steps.linux-package-check.outcome == 'success' && steps.appimage.outcome == 'success')) && (runner.os != 'Windows' || steps.installer.outcome == 'success') && (runner.os != 'macOS' || steps.macos-package-name.outcome == 'success') }}
         uses: actions/upload-artifact@v4
         with:
           name: RFdudeSmithChartV2-${{ matrix.artifact }}${{ steps.test.outcome == 'failure' && '-tests-failed' || '' }}
           path: |
             packages/*.deb
+            packages/*.AppImage
             packages/*-setup.exe
             packages/*.dmg
           if-no-files-found: error
@@ -188,6 +215,35 @@ jobs:
         with:
           name: linux-install-${{ strategy.job-index }}-logs
           path: installer-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  appimage-test:
+    name: Linux AppImage (no Qt SDK)
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: RFdudeSmithChartV2-linux-x64
+          path: installers
+      - name: Install system graphics dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth libgl1 libopengl0 libegl1 libx11-6 libxkbcommon0 libxkbcommon-x11-0 libxcb1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1
+      - name: Validate downloaded AppImage
+        run: |
+          set -euo pipefail
+          mkdir -p appimage-logs
+          python3 tools/check_appimage.py installers/*.AppImage 2>&1 | tee appimage-logs/appimage-test.txt
+      - name: Upload AppImage validation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage-test-logs
+          path: appimage-logs
           if-no-files-found: warn
           retention-days: 7
 
@@ -253,7 +309,7 @@ jobs:
 
   publish:
     name: Publish passing installers
-    needs: [build, linux-install, windows-install, macos-install]
+    needs: [build, linux-install, appimage-test, windows-install, macos-install]
     if: >-
       ${{ success() && github.event_name != 'pull_request' &&
           (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}

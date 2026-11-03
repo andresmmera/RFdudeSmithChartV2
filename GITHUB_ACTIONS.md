@@ -21,14 +21,18 @@ or GitHub Copilot.
    workflow**, choose the branch to build, and confirm.
 5. When the run finishes, open it and download the Linux, Windows, and
    architecture-specific macOS artifacts. The Windows artifact contains the
-   setup `.exe`; Linux contains a `.deb`; macOS artifacts contain `.dmg` files.
+   setup `.exe`; Linux contains a `.deb` and an `.AppImage`; macOS artifacts
+   contain `.dmg` files.
    A Windows artifact ending in `-tests-failed` was packaged despite a test
    failure and should not be presented as a verified build.
 
-Linux packages are extracted and checked for private Qt runtime paths, then
-smoke-tested under Xvfb before upload. macOS builds explicitly set and verify
-their CPU architecture. Separate installer jobs then test the actual downloads
-on runners without the build job's Qt SDK; see the coverage below.
+Linux DEB packages and AppImages are extracted and checked for private Qt
+runtime paths, then smoke-tested under Xvfb before upload. The AppImage builder
+and its embedded runtime are downloaded from upstream continuous-release URLs
+and checked against pinned SHA-256 digests before use. macOS builds explicitly
+set and verify their CPU architecture. Separate installer jobs then test the
+actual downloads on runners without the build job's Qt SDK; the AppImage is
+also re-tested on a clean runner before publication. See the coverage below.
 The original v0.1.0 Linux release
 installer is unsafe and has been replaced on the release page with Debian
 revision `0.1.0-1`: see the warning in [README.md](README.md).
@@ -60,9 +64,9 @@ which must match the CMake project version. Pull requests, other branches, and
 any failed build or installer job cannot publish. Diagnostic `-tests-failed` artifacts
 are never release inputs.
 
-The publishing job downloads only this run's four verified installer artifacts
+The publishing job downloads only this run's four verified platform artifacts
 (Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon), requires the
-complete expected set, and attaches installers, `SHA256SUMS.txt`, and
+complete expected installer set, and attaches installers, `SHA256SUMS.txt`, and
 `build-info.json` with the exact source SHA and run URL. Assets are uploaded
 to a draft first, then made public as a pre-release only after all uploads
 succeed. Upload failure leaves a draft, not a partial public release. Existing
@@ -80,15 +84,17 @@ are not notarized. Passing CI is not exhaustive clean-machine certification.
 
 ## Installer safety gates
 
-These checks operate on the final DEB, setup EXE, and both DMGs, not the build
-directory. Installer jobs have read-only repository permissions and bounded
-timeouts. Their logs are retained for seven days, including on failure.
+These checks operate on the final DEB, AppImage, setup EXE, and both DMGs, not
+the build directory. Installer jobs have read-only repository permissions and
+bounded timeouts. Their logs are retained for seven days, including on failure.
 Build artifacts are candidates until the entire workflow succeeds; the public
 pre-release cannot publish until every installer matrix entry passes.
 
 | Platform | Required checks |
 |---|---|
 | Linux | Before extraction: package identity/architecture, no package replacement/conflict metadata, approved archive paths/types, root ownership, safe modes, no escaping links or maintainer scripts. Every ELF runtime search path must be relative and private. |
+| Linux AppImage | Pinned SHA-256 verification for appimagetool and its embedded runtime; extracted launcher, desktop entry, and icon; no escaping symlinks; private Qt dependencies and ELF runtime paths; Xvfb startup with the private Qt platform plugin. |
+| Linux AppImage lifecycle | Re-check the uploaded AppImage on a separate Ubuntu 22.04 runner without the Qt SDK, including private Qt loading and Xvfb startup. |
 | Linux lifecycle | Disposable Ubuntu 22.04, 24.04, 26.04 and Debian 12/13 containers with distro `kdialog` and Qt/KDE dependencies. Install, open an example in a visible XCB window, reinstall, purge. Hash distro Qt/KDE files and loader configuration; verify Qt loader cache, KDE canary startup, and existing package versions remain unchanged. Inspect the running app's actual Qt/plugin mappings. No installation is performed on the maintainer's host. |
 | Windows | Separate Windows 2022 runner, no Qt SDK installation, Qt/Python removed from process PATH. Silent Inno Setup install into a path containing spaces, installed example/native window, loaded Qt/Windows plugin paths, Start Menu target, reinstall, uninstall. Shared system Qt DLL hashes and persistent PATH must remain unchanged. |
 | macOS | Separate native Intel and Apple Silicon runners, no Qt SDK installation. Mount final DMG read-only, copy app into a path containing spaces, unmount before launching. Inspect every Mach-O's architecture/dependencies/RPATH and bundle symlinks. Require private Qt/Cocoa loading, help output and a visible native window; capture desktop, remove copied app. |

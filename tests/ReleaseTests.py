@@ -18,14 +18,16 @@ spec.loader.exec_module(publisher)
 class ReleaseTests(unittest.TestCase):
     def installers(self, root):
         windows = root / "RFdudeSmithChartV2-0.1.0-windows-x64-setup.exe"
+        appimage = root / "RFdudeSmithChartV2-0.1.0-linux-x64.AppImage"
         mac_arm64 = root / "RFdudeSmithChartV2-0.1.0-macos-arm64.dmg"
         mac_x64 = root / "RFdudeSmithChartV2-0.1.0-macos-x64.dmg"
         linux = root / "rfdudesmithchartv2_0.1.0-1_amd64.deb"
         windows.write_bytes(b"windows test fixture")
+        appimage.write_bytes(b"linux AppImage test fixture")
         mac_arm64.write_bytes(b"macOS Apple Silicon test fixture")
         mac_x64.write_bytes(b"macOS Intel test fixture")
         linux.write_bytes(b"linux test fixture")
-        return windows, mac_arm64, mac_x64, linux
+        return windows, appimage, mac_arm64, mac_x64, linux
 
     def publish(self, root, tag="build-123-1"):
         publisher.publish(
@@ -68,14 +70,16 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(run.call_count, 1)
 
     def test_missing_extra_empty_or_failed_test_assets_are_rejected(self):
-        for variant in ("missing", "extra", "empty", "failed-tests"):
+        for variant in ("missing", "missing-appimage", "extra", "empty", "failed-tests"):
             with self.subTest(variant=variant), tempfile.TemporaryDirectory() as directory, patch.object(
                 publisher.subprocess, "run",
             ) as run:
                 root = Path(directory)
-                windows, mac_arm64, mac_x64, linux = self.installers(root)
+                windows, appimage, mac_arm64, mac_x64, linux = self.installers(root)
                 if variant == "missing":
                     mac_arm64.unlink()
+                elif variant == "missing-appimage":
+                    appimage.unlink()
                 elif variant == "extra":
                     (root / "unexpected.exe").write_bytes(b"unexpected")
                 elif variant == "empty":
