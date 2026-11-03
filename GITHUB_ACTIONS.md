@@ -44,6 +44,8 @@ in both the application executable and setup installer. Start Menu and optional
 desktop shortcuts use the installed executable's icon.
 The clean Linux runner restores the AppImage executable bit after artifact
 download, because GitHub artifact ZIPs do not preserve executable permissions.
+It installs system graphics dependencies, including `libxcb-shape0` required
+by Qt's XCB platform runtime; it does not install a Qt SDK.
 
 No secrets, Copilot subscription, or paid signing credentials are required by
 the current workflow. A run started in your fork belongs to your fork, not this
