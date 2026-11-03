@@ -239,6 +239,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p appimage-logs
+          chmod +x installers/*.AppImage
           python3 tools/check_appimage.py installers/*.AppImage 2>&1 | tee appimage-logs/appimage-test.txt
       - name: Upload AppImage validation log
         if: always()

@@ -31,10 +31,12 @@ function Assert-ExecutableIcon([string]$Executable) {
     $large = [IntPtr[]]::new(1)
     $small = [IntPtr[]]::new(1)
     try {
-        if ([RFdudeIconProbe]::ExtractIconEx($Executable, 0, $large, $small, 1) -ne 1 -or
+        $count = [RFdudeIconProbe]::ExtractIconEx($Executable, 0, $large, $small, 1)
+        if ($count -eq 0 -or $count -eq [uint32]::MaxValue -or
             $large[0] -eq [IntPtr]::Zero -or $small[0] -eq [IntPtr]::Zero) {
-            throw "Executable is missing extractable large/small Windows icons: $Executable"
+            throw "Executable is missing extractable large/small Windows icons: $Executable (count=$count, large=$($large[0]), small=$($small[0]))"
         }
+        Write-Output "PASS: executable icons extracted (count=$count, large=$($large[0]), small=$($small[0]))"
     } finally {
         foreach ($icon in @($large[0], $small[0])) {
             if ($icon -ne [IntPtr]::Zero) { [void][RFdudeIconProbe]::DestroyIcon($icon) }
