@@ -15,6 +15,33 @@ $env:QT_DEBUG_PLUGINS = "1"
 # This job never installs a Qt SDK; also exclude any runner Qt/Python plugin paths.
 $env:PATH = (($env:PATH -split ";" | Where-Object { $_ -notmatch '(?i)(Qt|Python)' }) -join ";")
 
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class RFdudeIconProbe {
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern uint ExtractIconEx(string file, int index,
+        [Out] IntPtr[] largeIcons, [Out] IntPtr[] smallIcons, uint count);
+    [DllImport("user32.dll")]
+    public static extern bool DestroyIcon(IntPtr icon);
+}
+"@
+
+function Assert-ExecutableIcon([string]$Executable) {
+    $large = [IntPtr[]]::new(1)
+    $small = [IntPtr[]]::new(1)
+    try {
+        if ([RFdudeIconProbe]::ExtractIconEx($Executable, 0, $large, $small, 1) -ne 1 -or
+            $large[0] -eq [IntPtr]::Zero -or $small[0] -eq [IntPtr]::Zero) {
+            throw "Executable is missing extractable large/small Windows icons: $Executable"
+        }
+    } finally {
+        foreach ($icon in @($large[0], $small[0])) {
+            if ($icon -ne [IntPtr]::Zero) { [void][RFdudeIconProbe]::DestroyIcon($icon) }
+        }
+    }
+}
+
 function Get-SystemQtState {
     $state = @{}
     foreach ($directory in @("$env:WINDIR\System32", "$env:WINDIR\SysWOW64")) {
@@ -46,6 +73,7 @@ function Test-Application {
     foreach ($file in @($executable, (Join-Path $root "plugins\platforms\qwindows.dll"))) {
         if (-not (Test-Path $file)) { throw "Missing installed runtime: $file" }
     }
+    Assert-ExecutableIcon $executable
     $example = Join-Path $root "share\RFdudeSmithChartV2\examples\network.rfs_45Mfilter.json"
     if (-not (Test-Path $example)) { throw "Installed example is missing" }
     $process = Start-Process -FilePath $executable -ArgumentList "`"$example`"" -PassThru
@@ -80,21 +108,26 @@ function Test-Application {
 
 $installerPath = (Resolve-Path $Installer).Path
 $before = Get-SystemQtState
-Invoke-Installer $installerPath @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=`"$root`"", "/LOG=`"$logs\install.txt`"")
+Invoke-Installer $installerPath @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/TASKS=desktopicon", "/DIR=`"$root`"", "/LOG=`"$logs\install.txt`"")
 Assert-SystemQtUnchanged $before
 Test-Application
 $shortcut = Join-Path ([Environment]::GetFolderPath("CommonPrograms")) "RFdude Smith Chart V2.lnk"
-if (-not (Test-Path $shortcut)) { throw "Start Menu shortcut is missing" }
+$desktopShortcut = Join-Path ([Environment]::GetFolderPath("CommonDesktopDirectory")) "RFdude Smith Chart V2.lnk"
 $shell = New-Object -ComObject WScript.Shell
-if ($shell.CreateShortcut($shortcut).TargetPath -ne (Join-Path $root "bin\RFdudeSmithChartV2.exe")) {
-    throw "Start Menu shortcut does not target the installed executable"
+foreach ($path in @($shortcut, $desktopShortcut)) {
+    if (-not (Test-Path $path)) { throw "Installed shortcut is missing: $path" }
+    $link = $shell.CreateShortcut($path)
+    $executable = Join-Path $root "bin\RFdudeSmithChartV2.exe"
+    if ($link.TargetPath -ne $executable -or $link.IconLocation -ne "$executable,0") {
+        throw "Shortcut does not target the installed executable and its icon: $path"
+    }
 }
-Invoke-Installer $installerPath @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=`"$root`"", "/LOG=`"$logs\reinstall.txt`"")
+Invoke-Installer $installerPath @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/TASKS=desktopicon", "/DIR=`"$root`"", "/LOG=`"$logs\reinstall.txt`"")
 Assert-SystemQtUnchanged $before
 Test-Application
 Invoke-Installer (Join-Path $root "unins000.exe") @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=`"$logs\uninstall.txt`"")
 Assert-SystemQtUnchanged $before
-if ((Test-Path $root) -or (Test-Path $shortcut)) {
-    throw "Uninstall left the installation directory or Start Menu shortcut behind"
+if ((Test-Path $root) -or (Test-Path $shortcut) -or (Test-Path $desktopShortcut)) {
+    throw "Uninstall left the installation directory or a shortcut behind"
 }
-Write-Output "PASS: silent install, native window, private Qt modules, reinstall, uninstall"
+Write-Output "PASS: silent install, native icons and shortcuts, native window, private Qt modules, reinstall, uninstall"

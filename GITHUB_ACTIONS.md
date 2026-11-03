@@ -29,13 +29,19 @@ or GitHub Copilot.
 Linux DEB packages and AppImages are extracted and checked for private Qt
 runtime paths, then smoke-tested under Xvfb before upload. The AppImage builder
 and its embedded runtime are downloaded from upstream continuous-release URLs
-and checked against pinned SHA-256 digests before use. macOS builds explicitly
-set and verify their CPU architecture. Separate installer jobs then test the
+and checked against pinned SHA-256 digests before use. AppDir includes relative
+root-level links to the installed desktop entry and icon, as required by
+appimagetool, without changing the private Qt runtime layout. macOS builds
+explicitly set and verify their CPU architecture. Separate installer jobs then test the
 actual downloads on runners without the build job's Qt SDK; the AppImage is
 also re-tested on a clean runner before publication. See the coverage below.
 The original v0.1.0 Linux release
 installer is unsafe and has been replaced on the release page with Debian
 revision `0.1.0-1`: see the warning in [README.md](README.md).
+
+Windows embeds a multi-size ICO version of the existing Smith chart artwork
+in both the application executable and setup installer. Start Menu and optional
+desktop shortcuts use the installed executable's icon.
 
 No secrets, Copilot subscription, or paid signing credentials are required by
 the current workflow. A run started in your fork belongs to your fork, not this
@@ -96,7 +102,7 @@ pre-release cannot publish until every installer matrix entry passes.
 | Linux AppImage | Pinned SHA-256 verification for appimagetool and its embedded runtime; extracted launcher, desktop entry, and icon; no escaping symlinks; private Qt dependencies and ELF runtime paths; Xvfb startup with the private Qt platform plugin. |
 | Linux AppImage lifecycle | Re-check the uploaded AppImage on a separate Ubuntu 22.04 runner without the Qt SDK, including private Qt loading and Xvfb startup. |
 | Linux lifecycle | Disposable Ubuntu 22.04, 24.04, 26.04 and Debian 12/13 containers with distro `kdialog` and Qt/KDE dependencies. Install, open an example in a visible XCB window, reinstall, purge. Hash distro Qt/KDE files and loader configuration; verify Qt loader cache, KDE canary startup, and existing package versions remain unchanged. Inspect the running app's actual Qt/plugin mappings. No installation is performed on the maintainer's host. |
-| Windows | Separate Windows 2022 runner, no Qt SDK installation, Qt/Python removed from process PATH. Silent Inno Setup install into a path containing spaces, installed example/native window, loaded Qt/Windows plugin paths, Start Menu target, reinstall, uninstall. Shared system Qt DLL hashes and persistent PATH must remain unchanged. |
+| Windows | Separate Windows 2022 runner, no Qt SDK installation, Qt/Python removed from process PATH. Silent Inno Setup install into a path containing spaces, installed example/native window, loaded Qt/Windows plugin paths, embedded large/small executable icons, Start Menu and optional desktop shortcut targets/icons, reinstall, uninstall. Shared system Qt DLL hashes and persistent PATH must remain unchanged. |
 | macOS | Separate native Intel and Apple Silicon runners, no Qt SDK installation. Mount final DMG read-only, copy app into a path containing spaces, unmount before launching. Inspect every Mach-O's architecture/dependencies/RPATH and bundle symlinks. Require private Qt/Cocoa loading, help output and a visible native window; capture desktop, remove copied app. |
 
 ### Coverage limits and remaining release work

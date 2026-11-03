@@ -59,7 +59,10 @@ def check_appimage(appimage: Path) -> None:
         icon = appdir / "usr/share/icons/hicolor/scalable/apps/rfdude-smith-chart-v2.svg"
         if not app_run.is_file() or not os.access(app_run, os.X_OK):
             raise RuntimeError("AppImage is missing its executable AppRun entry point.")
-        if not launcher.is_file() or not desktop_file.is_file() or not icon.is_file():
+        if not all(path.is_file() for path in (
+            launcher, desktop_file, icon,
+            appdir / desktop_file.name, appdir / icon.name,
+        )):
             raise RuntimeError("AppImage is missing its launcher, desktop entry, or icon.")
         if not executable.is_file():
             raise RuntimeError(f"AppImage is missing its private executable: {executable}")

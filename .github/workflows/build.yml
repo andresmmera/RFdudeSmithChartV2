@@ -164,6 +164,8 @@ jobs:
           version="$(python3 -c 'import re; from pathlib import Path; text = Path("CMakeLists.txt").read_text(); match = re.search(r"^\s*VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)\s*$", text, re.MULTILINE); print(match.group(1) if match else exit("Could not read the project version from CMakeLists.txt"))')"
           cmake --install build --config Release --prefix "$PWD/AppDir/usr"
           install -m 755 packaging/linux/AppRun AppDir/AppRun
+          ln -s usr/share/applications/rfdude-smith-chart-v2.desktop AppDir/rfdude-smith-chart-v2.desktop
+          ln -s usr/share/icons/hicolor/scalable/apps/rfdude-smith-chart-v2.svg AppDir/rfdude-smith-chart-v2.svg
           mkdir -p packages
           APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 VERSION="$version" ./appimagetool.AppImage \
             --runtime-file "$PWD/runtime-x86_64" AppDir \

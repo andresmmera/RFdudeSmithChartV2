@@ -14,6 +14,10 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+if(WIN32)
+    enable_language(RC)
+endif()
+
 option(RFDUDE_BUNDLE_QT "Deploy Qt runtime dependencies with the installed application" OFF)
 if(RFDUDE_BUNDLE_QT AND UNIX AND NOT APPLE)
     find_program(QT_DEPLOY_PATCHELF_EXECUTABLE patchelf REQUIRED)
@@ -66,6 +70,10 @@ add_library(rfui
 target_link_libraries(rfui PUBLIC rfcore Qt6::Widgets)
 
 qt_add_executable(RFdudeSmithChartV2 src/main.cpp src/application.qrc)
+if(WIN32)
+    target_sources(RFdudeSmithChartV2 PRIVATE packaging/windows/application.rc)
+    target_include_directories(RFdudeSmithChartV2 PRIVATE packaging/windows)
+endif()
 target_link_libraries(RFdudeSmithChartV2 PRIVATE rfui)
 set_target_properties(RFdudeSmithChartV2 PROPERTIES
     WIN32_EXECUTABLE TRUE
