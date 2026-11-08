@@ -33,3 +33,7 @@ private:
     rf::Document document_;
     bool selectingFromMouse_ = false;
 };
+
+// Draws one component's schematic symbol in its 140 x 200 cell (origin at the top left),
+// exactly as the schematic does. Pass labels = false for small icons.
+void paintComponentSymbol(QPainter& painter, const rf::Component& c, bool labels = true);

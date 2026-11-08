@@ -109,7 +109,7 @@ void lumped(QPainter& painter, rf::Kind kind, QPointF from, QPointF to)
     painter.restore();
 }
 
-void component(QPainter& painter, const rf::Component& c)
+void component(QPainter& painter, const rf::Component& c, bool labels = true)
 {
     const QPointF left(0, circuitY);
     const QPointF right(cellWidth, circuitY);
@@ -117,7 +117,9 @@ void component(QPainter& painter, const rf::Component& c)
     if (c.kind == rf::Kind::Measured) {
         painter.drawLine(left, {24, circuitY});
         painter.drawRect(QRectF(24, circuitY - 20, 92, 40));
-        painter.drawText(QRectF(28, circuitY - 18, 84, 36), Qt::AlignCenter, "1   S2P   2");
+        if (labels) {
+            painter.drawText(QRectF(28, circuitY - 18, 84, 36), Qt::AlignCenter, "1   S2P   2");
+        }
         painter.drawLine(QPointF(116, circuitY), right);
         painter.drawEllipse(QPointF(24, circuitY), 2, 2);
         painter.drawEllipse(QPointF(116, circuitY), 2, 2);
@@ -138,14 +140,18 @@ void component(QPainter& painter, const rf::Component& c)
         if (c.connection == rf::Connection::ThroughLine) {
             painter.drawLine(left, {38, circuitY});
             painter.drawRect(QRectF(38, circuitY - 12, 64, 24));
-            painter.drawText(QRectF(38, circuitY - 12, 64, 24), Qt::AlignCenter, label);
+            if (labels){
+                painter.drawText(QRectF(38, circuitY - 12, 64, 24), Qt::AlignCenter, label);
+            }
             painter.drawLine(QPointF(102, circuitY), right);
         } else {
             painter.drawLine(left, right);
             painter.drawEllipse(junction, 3, 3);
             painter.drawLine(junction, {cellWidth / 2, 78});
             painter.drawRect(QRectF(cellWidth / 2 - 18, 78, 36, 34));
-            painter.drawText(QRectF(cellWidth / 2 - 18, 78, 36, 34), Qt::AlignCenter, label);
+            if (labels) {
+                painter.drawText(QRectF(cellWidth / 2 - 18, 78, 36, 34), Qt::AlignCenter, label);
+            }
             painter.drawLine(QPointF(cellWidth / 2, 112), {cellWidth / 2, 124});
             if (c.connection == rf::Connection::ShortStub)
                 ground(painter, {cellWidth / 2, 124});
@@ -163,6 +169,10 @@ void component(QPainter& painter, const rf::Component& c)
         painter.drawLine(QPointF(cellWidth - 16, circuitY), right);
     }
 }
+}
+
+void paintComponentSymbol(QPainter& painter, const rf::Component& c, bool labels) {
+    component(painter, c, labels);
 }
 
 SchematicWidget::SchematicWidget(QWidget* parent) : QGraphicsView(parent)

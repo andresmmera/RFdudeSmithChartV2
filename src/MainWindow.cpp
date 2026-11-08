@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "DocumentIO.h"
+#include "ComponentPalette.h"
 #include "Editors.h"
 #include "FrequencyResponseDialog.h"
 #include "LtspiceExport.h"
@@ -127,9 +128,11 @@ void MainWindow::buildActions()
         return bar;
     };
     auto* networkBar = makeGroup(tr("Network"), "networkToolbar");
-    auto* componentBar = makeGroup(tr("Add component"), "componentToolbar");
     auto* selectedBar = makeGroup(tr("Selected"), "selectedToolbar");
     auto* synthesisBar = makeGroup(tr("Synthesis"), "synthesisToolbar");
+    addToolBarBreak(); // New line. The components' ribbon is quite large
+    auto* componentBar = makeGroup(tr("Add component"), "componentToolbar");
+
     // Toolbar buttons use the short iconText; menus keep the full text.
     const auto describe = [](QAction* a, const QString& shortText, const QString& tip) {
         a->setIconText(shortText);
@@ -204,8 +207,13 @@ void MainWindow::buildActions()
             QKeySequence(entry.second), "add" + entry.second, [this, kind = entry.first] { addComponent(kind); });
         const auto name = QString::fromStdString(rf::kindName(entry.first));
         describe(a, name, tr("Add %1 (%2)").arg(name.toLower(), entry.second));
-        componentBar->addAction(a);
     }
+
+    auto* palette = new ComponentPalette;
+    componentBar->addWidget(palette);
+    connect(palette, &ComponentPalette::addRequested, this,
+            [this](rf::Kind kind, rf::Connection connection) { addComponent(kind, connection); });
+
     describe(editAction_, tr("Edit"), tr("Edit selected component (E)"));
     describe(deleteAction_, tr("Delete"), tr("Delete selected component (Del)"));
     selectedBar->addAction(editAction_);
@@ -467,6 +475,16 @@ void MainWindow::addComponent(rf::Kind kind)
         d.components.insert(d.components.begin() + d.selected + 1, *value);
         ++d.selected;
     });
+}
+
+void MainWindow::addComponent(rf::Kind kind, rf::Connection connection){
+    auto component = rf::defaultComponent(kind, document_.frequencyMHz, document_.referenceOhms);
+    component.connection = connection;  // the editor opens with this connection selected
+    const auto value = editComponent(this, component);
+    if (value) change([&](rf::Document& d) {
+            d.components.insert(d.components.begin() + d.selected + 1, *value);
+            ++d.selected;
+        });
 }
 
 void MainWindow::editSelected()

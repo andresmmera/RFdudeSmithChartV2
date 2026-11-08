@@ -37,6 +37,7 @@ private:
     void refresh();
     bool change(const std::function<void(rf::Document&)>& mutation);
     void addComponent(rf::Kind kind);
+    void addComponent(rf::Kind kind, rf::Connection connection);
     void editSelected();
     void deleteSelected();
     void select(int index);
