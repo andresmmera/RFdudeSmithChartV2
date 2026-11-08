@@ -34,6 +34,12 @@ private:
     bool selectingFromMouse_ = false;
 };
 
-// Draws one component's schematic symbol in its 140 x 200 cell (origin at the top left),
-// exactly as the schematic does. Pass labels = false for small icons.
+/// @brief Draws one component's schematic symbol, exactly as the schematic does.
+/// @details The symbol is drawn in its 140 x 200 schematic cell with the origin at the top
+/// left, using the painter's current pen, brush and transform. The caller sets up scaling
+/// and colours.
+/// @param painter Painter to draw with.
+/// @param c Component to draw; its kind and connection select the symbol.
+/// @param labels False to leave out the text inside symbols (value, "TL", "MS", "Coax"),
+///        for small icons.
 void paintComponentSymbol(QPainter& painter, const rf::Component& c, bool labels = true);
