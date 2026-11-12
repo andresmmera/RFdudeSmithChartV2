@@ -7,6 +7,7 @@
 
 class QDoubleSpinBox;
 class QSpinBox;
+class FrequencySpinBox;
 class QComboBox;
 class QLabel;
 class ResponsePlotWidget;
@@ -17,6 +18,11 @@ class FrequencyResponseDialog final : public QDialog
 
 public:
     explicit FrequencyResponseDialog(const rf::Document& document, QWidget* parent = nullptr);
+
+    /// @brief Select the type of termination
+    /// @param terminated: True for S11 only
+    ///                    False for S11/S21/S22
+    void setTerminated(bool terminated);
     void setNetwork(const rf::Document& document);
     QImage responseImage();
 
@@ -25,14 +31,15 @@ signals:
 
 private:
     void applySweep();
+    void autoApply();
     void calculate();
     void updateMarker();
     void exportPlot();
     void constrainSweep();
     rf::Document document_;
     rf::Sweep sweep_;
-    QDoubleSpinBox* start_;
-    QDoubleSpinBox* stop_;
+    FrequencySpinBox* start_;
+    FrequencySpinBox* stop_;
     QDoubleSpinBox* ports_;
     QSpinBox* points_;
     QComboBox* scale_;
@@ -42,4 +49,5 @@ private:
     ResponsePlotWidget* plot_;
     bool terminated_ = false;
     bool singlePoint_ = false;
+    bool updatingControls_ = false;
 };
