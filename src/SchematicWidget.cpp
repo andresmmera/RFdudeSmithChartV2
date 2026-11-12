@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <utility>
 
 namespace {
 constexpr double sourceWidth = 110;
@@ -328,13 +329,17 @@ int SchematicWidget::componentAt(QPoint position) const
     return count - 1 - static_cast<int>((point.x() - sourceWidth) / cellWidth);
 }
 
-void SchematicWidget::mousePressEvent(QMouseEvent* event)
-{
-    const int index = componentAt(event->position().toPoint());
+void SchematicWidget::mousePressEvent(QMouseEvent* event) {
+    const auto position = event->position().toPoint();
+    const int index = componentAt(position);
     if (event->button() == Qt::LeftButton && index >= 0) {
         selectingFromMouse_ = true;
         emit componentSelected(index);
         selectingFromMouse_ = false;
+        event->accept();
+    } else if (event->button() == Qt::LeftButton && terminalAt(position) != Terminal::None) {
+        // The click completes on release, so the dialog it opens never receives the release.
+        pressedTerminal_ = terminalAt(position);
         event->accept();
     } else {
         QGraphicsView::mousePressEvent(event);
@@ -343,26 +348,65 @@ void SchematicWidget::mousePressEvent(QMouseEvent* event)
 
 void SchematicWidget::mouseDoubleClickEvent(QMouseEvent* event)
 {
-    const int index = componentAt(event->position().toPoint());
+    const auto position = event->position().toPoint();
+    const int index = componentAt(position);
+
     if (event->button() == Qt::LeftButton && index >= 0) {
         selectingFromMouse_ = true;
         emit componentSelected(index);
         selectingFromMouse_ = false;
         emit editRequested();
         event->accept();
+    } else if (event->button() == Qt::LeftButton && terminalAt(position) != Terminal::None) {
+        pressedTerminal_ = terminalAt(position);  // a fast second click counts like a click
+        event->accept();
     } else {
         QGraphicsView::mouseDoubleClickEvent(event);
     }
 }
 
-void SchematicWidget::mouseMoveEvent(QMouseEvent* event)
-{
-    const int index = componentAt(event->position().toPoint());
-    setToolTip(index < 0 ? (document_.measuredLoad
-        ? tr("Measured load: %1\n%2").arg(measuredDescription(*document_.measuredLoad),
-                                          impedanceText(rf::startingImpedance(document_))) : QString{})
-        : tr("#%1 %2\n%3").arg(index + 1)
-        .arg(QString::fromStdString(rf::connectionName(document_.components[static_cast<std::size_t>(index)].connection)),
-             componentDescription(document_.components[static_cast<std::size_t>(index)])));
+void SchematicWidget::mouseMoveEvent(QMouseEvent* event) {
+    const auto position = event->position().toPoint();
+    const int index = componentAt(position);
+    const auto terminal = terminalAt(position);
+    viewport()->setCursor(terminal == Terminal::None ? Qt::ArrowCursor : Qt::PointingHandCursor);
+    QString tip;
+    if (index >= 0) {
+        const auto& c = document_.components[static_cast<std::size_t>(index)];
+        tip = tr("#%1 %2\n%3").arg(index + 1)
+                  .arg(QString::fromStdString(rf::connectionName(c.connection)), componentDescription(c));
+    } else if (terminal == Terminal::Source) {
+        tip = tr("Source: Rs = %1 ohm (chart Z0)\nClick to edit the goal impedance")
+        .arg(document_.referenceOhms, 0, 'g', 4);
+    } else if (terminal == Terminal::Load && !document_.measuredLoad) {
+        tip = tr("Load: %1\nClick to edit the starting impedance")
+        .arg(impedanceText(rf::startingImpedance(document_)));
+    } else if (document_.measuredLoad) {
+        tip = tr("Measured load: %1\n%2").arg(measuredDescription(*document_.measuredLoad),
+                                              impedanceText(rf::startingImpedance(document_)));
+        if (terminal == Terminal::Load) tip += tr("\nClick to open the network setup");
+    }
+    setToolTip(tip);
     QGraphicsView::mouseMoveEvent(event);
+}
+
+SchematicWidget::Terminal SchematicWidget::terminalAt(QPoint position) const {
+    const auto point = mapToScene(position);
+    if (point.y() < 0 || point.y() >= sceneHeight) return Terminal::None;
+    if (point.x() >= 0 && point.x() < sourceWidth) return Terminal::Source;
+    const double end = sourceWidth + cellWidth * static_cast<double>(document_.components.size());
+    if (point.x() >= end && point.x() < end + loadWidth) return Terminal::Load;
+    return Terminal::None;
+}
+
+void SchematicWidget::mouseReleaseEvent(QMouseEvent* event) {
+    const auto pressed = std::exchange(pressedTerminal_, Terminal::None);
+    if (event->button() == Qt::LeftButton && pressed != Terminal::None
+        && terminalAt(event->position().toPoint()) == pressed) {
+        event->accept();
+        if (pressed == Terminal::Source) emit sourceClicked();
+        else emit loadClicked();
+        return;
+    }
+    QGraphicsView::mouseReleaseEvent(event);
 }

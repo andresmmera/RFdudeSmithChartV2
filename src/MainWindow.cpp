@@ -95,8 +95,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
     connect(table_, &QTableWidget::cellDoubleClicked, this, [this] { editSelected(); });
     connect(chart_, &SmithChartWidget::componentSelected, this, &MainWindow::select);
     connect(chart_, &SmithChartWidget::editRequested, this, &MainWindow::editSelected);
+
     connect(schematic_, &SchematicWidget::componentSelected, this, &MainWindow::select);
     connect(schematic_, &SchematicWidget::editRequested, this, &MainWindow::editSelected);
+    // Clicking an end of the schematic opens the setup with the matching impedance focused.
+    connect(schematic_, &SchematicWidget::sourceClicked, this, [this] { settings("goalR"); });
+    connect(schematic_, &SchematicWidget::loadClicked, this, [this] { settings("startR"); });
+
     connect(chart_, &SmithChartWidget::tuneRequested, this, &MainWindow::tune);
     connect(chart_, &SmithChartWidget::impedanceRequested, this, &MainWindow::inspectImpedance);
     connect(chart_, &SmithChartWidget::hoverText, this, [this](const QString& text) {
