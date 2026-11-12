@@ -15,6 +15,7 @@ AppPublisherURL=https://www.RFdude.com
 DefaultDirName={autopf}\RFdude Smith Chart V2
 DefaultGroupName=RFdude Smith Chart V2
 UninstallDisplayIcon={app}\bin\RFdudeSmithChartV2.exe
+SetupIconFile=rfdude-smith-chart-v2.ico
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
 OutputDir=..\..\packages
@@ -30,8 +31,8 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "{#AppStage}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\RFdude Smith Chart V2"; Filename: "{app}\bin\RFdudeSmithChartV2.exe"
-Name: "{autodesktop}\RFdude Smith Chart V2"; Filename: "{app}\bin\RFdudeSmithChartV2.exe"; Tasks: desktopicon
+Name: "{autoprograms}\RFdude Smith Chart V2"; Filename: "{app}\bin\RFdudeSmithChartV2.exe"; IconFilename: "{app}\bin\RFdudeSmithChartV2.exe"; IconIndex: 0
+Name: "{autodesktop}\RFdude Smith Chart V2"; Filename: "{app}\bin\RFdudeSmithChartV2.exe"; IconFilename: "{app}\bin\RFdudeSmithChartV2.exe"; IconIndex: 0; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\bin\RFdudeSmithChartV2.exe"; Description: "Launch RFdude Smith Chart V2"; Flags: postinstall nowait skipifsilent

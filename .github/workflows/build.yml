@@ -14,6 +14,7 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -26,28 +27,50 @@ jobs:
             os: windows-2022
             qt-arch: win64_msvc2022_64
             artifact: windows-x64
+          - name: macOS Apple Silicon
+            os: macos-15
+            qt-arch: clang_64
+            cmake-osx-architecture: arm64
+            artifact: macos-arm64
+          - name: macOS Intel
+            os: macos-15-intel
+            qt-arch: clang_64
+            cmake-osx-architecture: x86_64
+            artifact: macos-x64
     steps:
       - uses: actions/checkout@v4
       - name: Install Linux build and runtime dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build patchelf libgl1-mesa-dev libxkbcommon-dev libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 libegl1
+          sudo apt-get install -y ninja-build patchelf xvfb xauth libgl1-mesa-dev libxkbcommon-dev libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 libegl1
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
           arch: ${{ matrix.qt-arch }}
           cache: true
+      - name: Configure macOS
+        if: runner.os == 'macOS'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DRFDUDE_BUNDLE_QT=ON -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake-osx-architecture }}
       - name: Configure
         if: runner.os != 'macOS'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DRFDUDE_BUNDLE_QT=ON
-      - name: Configure macOS architecture
-        if: runner.os == 'macOS'
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DRFDUDE_BUNDLE_QT=ON -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake-osx-arch }}
       - name: Build
         id: build
         run: cmake --build build --config Release --parallel 2
+      - name: Verify macOS executable architecture
+        if: runner.os == 'macOS' && steps.build.outcome == 'success'
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.cmake-osx-architecture }}
+        shell: bash
+        run: |
+          executable="build/RFdudeSmithChartV2.app/Contents/MacOS/RFdudeSmithChartV2"
+          actual="$(lipo -archs "$executable")"
+          if [[ "$actual" != "$EXPECTED_ARCHITECTURE" ]]; then
+            echo "Expected $EXPECTED_ARCHITECTURE, found $actual" >&2
+            exit 1
+          fi
       - name: Install Inno Setup
         if: ${{ steps.build.outcome == 'success' && runner.os == 'Windows' }}
         run: choco install innosetup --no-progress -y
@@ -62,10 +85,41 @@ jobs:
           path: build/test-output/*.txt
           if-no-files-found: warn
           retention-days: 7
+      - name: Upload macOS UI test logs
+        if: ${{ failure() && runner.os == 'macOS' && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: RFdudeSmithChartV2-${{ matrix.artifact }}-ui-test-logs
+          path: build/test-output/*.txt
+          if-no-files-found: warn
+          retention-days: 7
       - name: Package deployable build
         id: package
         if: ${{ always() && steps.build.outcome == 'success' && (success() || runner.os == 'Windows') }}
         run: cpack --config build/CPackConfig.cmake -C Release -B packages
+      - name: Name macOS disk image by architecture
+        id: macos-package-name
+        if: runner.os == 'macOS' && steps.package.outcome == 'success'
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+
+          cmake = Path("CMakeLists.txt").read_text()
+          match = re.search(r"^\s*VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)\s*$", cmake, re.MULTILINE)
+          if not match:
+              raise SystemExit("Could not read the project version from CMakeLists.txt")
+          packages = list(Path("packages").glob("*.dmg"))
+          if len(packages) != 1:
+              raise SystemExit(f"Expected one macOS DMG, found {len(packages)}")
+          target = packages[0].with_name(
+              f"RFdudeSmithChartV2-{match.group(1)}-{os.environ['ARTIFACT']}.dmg"
+          )
+          packages[0].rename(target)
+          PY
       - name: Create Windows installer
         id: installer
         if: ${{ always() && steps.build.outcome == 'success' && steps.package.outcome == 'success' && runner.os == 'Windows' && (success() || runner.os == 'Windows') }}
@@ -83,14 +137,214 @@ jobs:
           if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found at $iscc" }
           & $iscc "/DAppStage=$stage" "/DAppVersion=$version" "packaging/windows/RFdudeSmithChartV2.iss"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Validate isolated Linux package
+        id: linux-package-check
+        if: ${{ success() && runner.os == 'Linux' && steps.package.outcome == 'success' }}
+        run: |
+          python3 -m unittest discover -s tests -p '*Tests.py'
+          python3 tools/check_linux_package.py packages/*.deb
+      - name: Build and validate Linux AppImage
+        id: appimage
+        if: ${{ success() && runner.os == 'Linux' && steps.linux-package-check.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          appimagetool_sha256=62aebc77c2149e96b593b94da9bbd1881e0984a56399ff6d7a03b7ddd7c9ce68
+          runtime_sha256=617aa77314d57c8b8e4fae9c3f0b35af7b30d5529cb69e98f64f92510ed98a46
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            --output appimagetool.AppImage
+          echo "$appimagetool_sha256  appimagetool.AppImage" | sha256sum --check
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 \
+            --output runtime-x86_64
+          echo "$runtime_sha256  runtime-x86_64" | sha256sum --check
+          chmod +x appimagetool.AppImage
+
+          version="$(python3 -c 'import re; from pathlib import Path; text = Path("CMakeLists.txt").read_text(); match = re.search(r"^\s*VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)\s*$", text, re.MULTILINE); print(match.group(1) if match else exit("Could not read the project version from CMakeLists.txt"))')"
+          cmake --install build --config Release --prefix "$PWD/AppDir/usr"
+          install -m 755 packaging/linux/AppRun AppDir/AppRun
+          ln -s usr/share/applications/rfdude-smith-chart-v2.desktop AppDir/rfdude-smith-chart-v2.desktop
+          ln -s usr/share/icons/hicolor/scalable/apps/rfdude-smith-chart-v2.svg AppDir/rfdude-smith-chart-v2.svg
+          mkdir -p packages
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 VERSION="$version" ./appimagetool.AppImage \
+            --runtime-file "$PWD/runtime-x86_64" AppDir \
+            "packages/RFdudeSmithChartV2-$version-linux-x64.AppImage"
+          python3 tools/check_appimage.py packages/*.AppImage
       - name: Upload package artifact
-        if: ${{ always() && steps.package.outcome == 'success' && (runner.os != 'Windows' || steps.installer.outcome == 'success') }}
+        if: ${{ always() && steps.package.outcome == 'success' && (runner.os != 'Linux' || (steps.linux-package-check.outcome == 'success' && steps.appimage.outcome == 'success')) && (runner.os != 'Windows' || steps.installer.outcome == 'success') && (runner.os != 'macOS' || steps.macos-package-name.outcome == 'success') }}
         uses: actions/upload-artifact@v4
         with:
           name: RFdudeSmithChartV2-${{ matrix.artifact }}${{ steps.test.outcome == 'failure' && '-tests-failed' || '' }}
           path: |
             packages/*.deb
+            packages/*.AppImage
             packages/*-setup.exe
             packages/*.dmg
           if-no-files-found: error
           retention-days: 30
+
+  linux-install:
+    name: Linux installer (${{ matrix.image }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ubuntu:22.04, ubuntu:24.04, ubuntu:26.04, debian:12, debian:13]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: RFdudeSmithChartV2-linux-x64
+          path: installers
+      - name: Install and remove beside distro KDE and Qt
+        env:
+          IMAGE: ${{ matrix.image }}
+        shell: bash
+        run: |
+          mkdir -p installer-logs
+          docker run --rm --volume "$PWD:/workspace:ro" --env DEBIAN_FRONTEND=noninteractive "$IMAGE" \
+            bash -euxo pipefail -c '
+              apt-get update
+              apt-get install -y --no-install-recommends python3 binutils kdialog xvfb xauth xdotool dbus-x11
+              xvfb-run -a dbus-run-session -- python3 /workspace/tools/test_linux_install.py /workspace/installers/*.deb
+            ' 2>&1 | tee installer-logs/linux-install.txt
+      - name: Upload lifecycle logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-install-${{ strategy.job-index }}-logs
+          path: installer-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  appimage-test:
+    name: Linux AppImage (no Qt SDK)
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: RFdudeSmithChartV2-linux-x64
+          path: installers
+      - name: Install system graphics dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth libgl1 libopengl0 libegl1 libx11-6 libxkbcommon0 libxkbcommon-x11-0 libxcb1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
+      - name: Validate downloaded AppImage
+        run: |
+          set -euo pipefail
+          mkdir -p appimage-logs
+          chmod +x installers/*.AppImage
+          python3 tools/check_appimage.py installers/*.AppImage 2>&1 | tee appimage-logs/appimage-test.txt
+      - name: Upload AppImage validation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage-test-logs
+          path: appimage-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  windows-install:
+    name: Windows installer (no Qt SDK)
+    needs: build
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: RFdudeSmithChartV2-windows-x64
+          path: installers
+      - name: Install, launch native GUI, reinstall and uninstall
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem installers/*-setup.exe)
+          if ($installers.Count -ne 1) { throw "Expected exactly one Windows installer" }
+          ./tools/test_windows_install.ps1 -Installer $installers[0].FullName
+      - name: Upload lifecycle logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-install-logs
+          path: installer-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  macos-install:
+    name: macOS installer (${{ matrix.architecture }}, no Qt SDK)
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            architecture: arm64
+            artifact: macos-arm64
+          - os: macos-15-intel
+            architecture: x86_64
+            artifact: macos-x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: RFdudeSmithChartV2-${{ matrix.artifact }}
+          path: installers
+      - name: Mount final DMG, relocate app and launch native GUI
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: python3 tools/test_macos_install.py installers/*.dmg "$ARCHITECTURE"
+      - name: Upload lifecycle logs and desktop capture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-install-logs
+          path: installer-logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  publish:
+    name: Publish passing installers
+    needs: [build, linux-install, appimage-test, windows-install, macos-install]
+    if: >-
+      ${{ success() && github.event_name != 'pull_request' &&
+          (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified Linux installer
+        uses: actions/download-artifact@v4
+        with:
+          name: RFdudeSmithChartV2-linux-x64
+          path: release-assets
+      - name: Download verified Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: RFdudeSmithChartV2-windows-x64
+          path: release-assets
+      - name: Download verified macOS Apple Silicon installer
+        uses: actions/download-artifact@v4
+        with:
+          name: RFdudeSmithChartV2-macos-arm64
+          path: release-assets
+      - name: Download verified macOS Intel installer
+        uses: actions/download-artifact@v4
+        with:
+          name: RFdudeSmithChartV2-macos-x64
+          path: release-assets
+      - name: Test release publishing safeguards
+        run: python3 -m unittest discover -s tests -p ReleaseTests.py
+      - name: Publish complete pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/publish-release.py release-assets

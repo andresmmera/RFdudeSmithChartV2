@@ -1,7 +1,8 @@
 # RFdude Smith Chart V2
 
 **Free, unsupported software, provided as-is.** I do not plan to maintain this
-project, respond to feedback or support requests, or accept pull requests.
+project, respond to feedback or support requests, or accept pull requests in general.
+There may be exceptions....
 
 A new cross-platform implementation of Lance Lascari's RFdude Smith Chart
 application, built with Qt 6 Widgets and C++20. The legacy application is a
@@ -75,13 +76,16 @@ build command and `-C Release` to CTest. Tests use Qt's offscreen platform; they
 do not launch or manipulate the legacy program or touch its repository.
 
 The [GitHub workflow](.github/workflows/build.yml) builds, tests, and packages
-Linux x64 and Windows x64 builds using Qt 6.8.3. macOS CI builds, tests, and
-packaging are temporarily disabled to conserve Actions usage; local macOS
-build support remains available.
+Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon builds using Qt
+6.8.3. Each macOS build sets and checks its target architecture explicitly.
 Download packages from an Actions run's **Artifacts** section; artifacts are
-retained for 30 days and are not published GitHub Releases.
+retained for 30 days. Passing builds on `main` and version tags also publish
+Linux, Windows, and both macOS installers together as GitHub Release
+pre-release assets, with checksums and source/build metadata. Pull requests
+and failed builds never publish releases.
 The Windows download is a setup `.exe`; the Linux download is a `.deb` package
-that installs into the desktop app menu.
+that installs into the desktop app menu; macOS downloads are architecture-
+specific `.dmg` disk images.
 The Windows package may still be uploaded if its build succeeds but UI tests
 fail; its `-tests-failed` artifact suffix means it has not passed CI tests.
 The workflow is enabled in repository settings.
@@ -90,9 +94,21 @@ To run the same installer builds in your own fork, see
 
 ## Downloads
 
-Versioned Linux and Windows installers are published on the
+**Do not install the original v0.1.0 Linux `.deb`.** It installs a shared
+`/usr/bin/qt.conf` and Qt runtime files that can break KDE/Dolphin. On affected
+machines, remove `rfdudesmithchartv2`, run `sudo ldconfig`, and reboot.
+The unsafe release download has been replaced with
+[`rfdudesmithchartv2_0.1.0-1_amd64.deb`](https://github.com/llascari/RFdudeSmithChartV2/releases/download/v0.1.0/rfdudesmithchartv2_0.1.0-1_amd64.deb),
+which uses a private Qt runtime. It was tested successfully on the two affected
+Kubuntu 26.04 LTS computers and subsequently uninstalled. See the
+[release notes](https://github.com/llascari/RFdudeSmithChartV2/releases/tag/v0.1.0)
+for recovery instructions and validation limits. Discard old installer copies;
+the Windows installer is unchanged.
+
+Versioned Linux, Windows, and macOS installers are published on the
 [GitHub Releases page](https://github.com/llascari/RFdudeSmithChartV2/releases).
-They are unsigned and unsupported; review the release notes before installing.
+They are unsigned and unsupported, and the macOS DMGs are not notarized;
+review the release notes before installing.
 
 ## VS Code: local desktop building and debugging
 
@@ -578,6 +594,14 @@ for portable packages; distro Qt can pull in many system libraries. Linux
 portability is constrained by the build machine's glibc baseline; building on
 Ubuntu 22.04 is intended to support that baseline and newer systems, not every
 Linux distribution.
+
+Bundled Linux installs keep the executable, `qt.conf`, Qt libraries, plugins,
+and translations under `lib/rfdudesmithchartv2` relative to the install prefix.
+Only a shell launcher is installed in `bin`; no shared `bin/qt.conf` or global
+Qt libraries/plugins are installed. Debian revision `0.1.0-1` supersedes the
+unsafe original `0.1.0` package. Validate the finished package without installing
+it using `python3 tools/check_linux_package.py build/packages/*.deb` (requires
+`xvfb-run`, `xauth`, and the package's host library dependencies).
 
 Windows downloads are setup `.exe` installers with Start Menu and desktop
 shortcuts; Linux downloads are `.deb` packages that add the application to the

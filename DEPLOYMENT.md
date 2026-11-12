@@ -2,8 +2,8 @@
 
 This is the maintainer's guide to making RFdude Smith Chart V2 downloadable
 on Windows, macOS, and Linux. It separates existing functionality from proposed
-release work. The original V2 source is licensed under MIT; this guide does not
-enable publishing.
+release work. The original V2 source is licensed under MIT. Passing main-branch
+and version-tag CI builds now publish unsigned pre-releases automatically.
 
 **Recommended starting point:** publish versioned downloads on GitHub Releases:
 a Windows x64 setup installer, separate Intel and Apple Silicon macOS DMGs,
@@ -51,11 +51,11 @@ See [CMakeLists.txt](CMakeLists.txt) and the
 | CI Qt version | Pinned to Qt `6.8.3`; not automatically upgraded |
 | Windows job | Windows 2022 runner, x64 MSVC 2022 Qt kit, Inno Setup `.exe` installer |
 | Linux job | Ubuntu 22.04 runner, x64 Qt kit, `.deb` package |
-| macOS jobs | Temporarily disabled to conserve Actions usage; local build/package support remains available |
+| macOS jobs | Apple Silicon (`macos-15`, `arm64`) and Intel (`macos-15-intel`, `x86_64`) Qt 6.8.3 builds, architecture-checked `.dmg` packages |
 | CI triggers | Pushes to `main` or `v*` tags, pull requests, and manual dispatch |
 | CI downloads | Per-platform workflow artifacts retained for 30 days |
 | Windows after test failure | A successful build is still packaged; installer artifact name ends in `-tests-failed` and is not CI-verified |
-| Public releases | No GitHub Release publishing; version-tag pushes build artifacts only |
+| Public releases | Passing main/tag builds publish Linux, Windows, Intel macOS, and Apple Silicon macOS pre-releases with checksums |
 | Signing | No configured Windows signing or macOS Developer ID signing/notarization |
 | Updates | No automatic updater; users install a newer download manually |
 
@@ -69,10 +69,10 @@ without that suffix for a build that passed the Windows test job.
 Fork owners can enable and manually run the reusable workflow without a
 Windows development machine; see [GITHUB_ACTIONS.md](GITHUB_ACTIONS.md).
 
-**macOS architecture warning:** runner labels can change. Before restoring
-macOS CI, verify runner availability, set `CMAKE_OSX_ARCHITECTURES` explicitly,
-and inspect the packaged executable architecture. The previous jobs used
-`macos-14` for Apple Silicon and `macos-15-intel` for Intel.
+The macOS workflow sets `CMAKE_OSX_ARCHITECTURES` explicitly and checks the
+compiled executable with `lipo` before packaging. Runner labels can change;
+confirm the current `macos-15` Apple Silicon and `macos-15-intel` Intel labels
+if updating the workflow.
 
 ### Planning: release downloads and Actions cost
 
@@ -83,11 +83,12 @@ an authenticated GitHub CLI:
 python3 tools/download-installers.py RUN_ID
 ```
 
-The run must have successful Linux and Windows jobs. The default destination is
+The run must have successful Linux, Windows, Intel macOS, and Apple Silicon
+macOS jobs. The default destination is
 `~/Downloads/RFdudeSmithChartV2/YYYY-MM-DD-NN/`, using the local download date
 and the next ascending, unused two-digit daily sequence (01 through 99).
 Existing folders are never overwritten. Use `--destination` to override the
-root. Both installers and a `build-info.json` file containing the source
+root. All four installers and a `build-info.json` file containing the source
 commit, CI URL, and SHA-256 checksums are saved together.
 
 Keep distributable packages out of the source tree and Git history. Attach
@@ -103,18 +104,17 @@ the account's included monthly compute amount and may be billed after that is
 used, depending on the plan and billing settings. As of October 2026, published
 standard-runner rates are approximately $0.006/minute for Linux x64,
 $0.010/minute for Windows x64, and $0.062/minute for macOS. For scale, one
-10-minute job on each of the three operating systems is roughly $0.78 before
-any included allowance; GitHub rounds job time up to whole minutes. Artifact
-storage is a separate allowance from runner compute.
+10-minute job on Linux, one on Windows, and one on each macOS architecture is
+roughly $1.40 before any included allowance; GitHub rounds job time up to whole
+minutes. Artifact storage is a separate allowance from runner compute.
 
 These are estimates, not a quote; rates, plan allowances, and billing rules
 can change. Check
 [GitHub Actions billing](https://docs.github.com/en/actions/concepts/billing-and-usage)
 and [runner pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing)
-for current details before enabling paid overage. Building and uploading
-packages does not by itself publish a release: a future release workflow can
-attach all successful platform packages to a draft release for review before
-publication.
+for current details before enabling paid overage. The publishing job waits for
+all four build jobs and every installer safety job, uploads the complete verified set to a draft, then publishes
+it as a pre-release. Failed builds cannot publish.
 
 ## 3. Build a distributable manually
 
@@ -156,7 +156,8 @@ Qt deployment does not by itself prove every dependency is present.
 ### Linux x64
 
 Use Ubuntu 22.04 as the current packaging baseline, with a C++20 compiler,
-CMake, the official Qt 6.8.3 `gcc_64` kit, and `patchelf`. The workflow lists
+CMake, the official Qt 6.8.3 `gcc_64` kit, `patchelf`, Python 3.9 or newer,
+`dpkg-deb`, `ldd`, `readelf` (binutils), `xvfb-run`, and `xauth`. The workflow lists
 additional build/display-library packages. Ubuntu 22.04's default distro Qt is
 older than the project's Qt minimum; do not assume `apt install qt6-base-dev`
 on that release supplies the required version.
@@ -168,8 +169,64 @@ cmake -S . -B build/package -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="$HOME/Qt/6.8.3/gcc_64" -DRFDUDE_BUNDLE_QT=ON
 cmake --build build/package --parallel 2
 ctest --test-dir build/package --output-on-failure
+python3 -m unittest discover -s tests -p LinuxPackageTests.py
 cpack --config build/package/CPackConfig.cmake -C Release -B build/packages
 ```
+
+Linux `cpack` runs the safety check automatically on the generated Debian package
+before copying it to the output directory. Missing validation tools, non-bundled
+builds, unsupported package formats, or failed checks make packaging fail; there
+is no validation-skip option. Failed staging files under `_CPack_Packages` are
+not distributable. Existing installers from earlier runs are not removed: use a
+fresh output directory to avoid confusing stale artifacts with current results.
+The `package` build target uses the same gate. Ordinary builds and staging with
+`cmake --install` do not run it and are not validated installers. Source archives
+are not installers and remain outside this check.
+
+The check extracts rather than
+installs the package, checks archive paths, types, ownership and permissions
+before extraction, rejects package replacement/conflict metadata and files
+outside the private runtime and approved desktop/data locations, rejects
+maintainer scripts and other unexpected control
+entries, checks Qt library resolution for the executable and every bundled
+shared library/plugin, verifies relative/private ELF search paths with `readelf`,
+and launches the packaged command under Xvfb. Loader
+diagnostics must also show that all actually loaded Qt libraries are private.
+CI additionally rechecks the final output before uploading Linux installers.
+Before public pre-release publication, separate installer jobs exercise
+install/reinstall/purge beside distro KDE/Qt on Ubuntu 22.04/24.04/26.04 and
+Debian 12/13. Distro runtime hashes, loader configuration/cache, a KDE canary,
+existing package versions, and visible application windows are checked.
+Windows and both macOS architectures also have separate final-installer
+native GUI checks without a Qt SDK. See
+[installer gates and coverage limits](GITHUB_ACTIONS.md#installer-safety-gates).
+To recheck an existing package without installing it:
+
+```sh
+python3 tools/check_linux_package.py path/to/installer.deb
+```
+
+After deployment, the build sets relative runtime search paths on the private
+copies of shared libraries/plugins. This also supports distribution Qt builds
+whose libraries lack the relative paths provided by official Qt kits; no host
+Qt files are modified. A package that fails validation must not be copied to
+the installer drop folder or distributed.
+
+Bundled Linux packages must keep all Qt runtime files, including `qt.conf`,
+inside `/usr/lib/rfdudesmithchartv2`. `/usr/bin/RFdudeSmithChartV2` is only a
+launcher; desktop integration and examples remain under `/usr/share`.
+Never install a global `/usr/bin/qt.conf`, Qt libraries in `/usr/lib`, or
+plugins in `/usr/plugins`. The original v0.1.0 Linux release did so and can
+break KDE/Dolphin; do not distribute or install that asset. The corrected
+Debian revision is `0.1.0-1`. The published Linux asset and checksums were
+replaced after CI validation and successful testing on both affected Kubuntu
+26.04 LTS computers, including subsequent uninstall. The original source tag
+and Windows installer are unchanged; the release notes identify the corrected
+Linux build commit and provide recovery instructions. This does not constitute
+exhaustive clean-machine compatibility testing.
+On affected machines, remove `rfdudesmithchartv2`, run
+`sudo ldconfig`, and restart the desktop/reboot. Do not remove system Qt
+packages or use `autoremove` as part of this recovery.
 
 Distribute the resulting `.deb` from `build/packages/`. On Ubuntu, double-click
 the package to open the software installer, authenticate, then launch RFdude
@@ -178,6 +235,27 @@ entire Linux OS. glibc, display services, graphics drivers, and some system
 libraries remain host requirements. Building on a newer distribution can
 introduce dependencies unavailable on older ones. Test the actual package on
 every advertised distribution/version, not just the build host.
+
+The application embeds a PNG copy of the launcher artwork for running windows,
+including launches directly from the executable. It also sets the desktop-entry
+ID `rfdude-smith-chart-v2`; the installed launcher declares the matching X11
+window class so desktop panels can associate running windows with it.
+After upgrading, close any old running instance and relaunch. If a pinned
+launcher still shows a stale icon, remove and re-pin it from the applications
+menu.
+
+The artwork source is
+[packaging/linux/rfdude-smith-chart-v2.svg](packaging/linux/rfdude-smith-chart-v2.svg).
+When changing it, regenerate the embedded PNG with `rsvg-convert` (librsvg):
+
+```sh
+rsvg-convert --width 256 --height 256 \
+  --output packaging/linux/rfdude-smith-chart-v2.png \
+  packaging/linux/rfdude-smith-chart-v2.svg
+```
+
+The PNG is checked in; building or installing does not require librsvg or a Qt
+SVG plugin.
 
 ### macOS
 
@@ -280,66 +358,39 @@ app from the applications menu; remove it from the software manager when done.
   distributions. It is not a universal Linux installer; RPM-based systems need
   a separate package and validation.
 
-## 5. Publish the first downloadable version
+## 5. Automatic downloadable pre-releases
 
-Start with a **manual draft GitHub Release**; automate after the packages and
-installation steps have been validated.
+The [build workflow](.github/workflows/build.yml) publishes only after all four
+Linux, Windows, Intel macOS, and Apple Silicon macOS jobs pass, including all
+tests, Linux Qt isolation checks, and explicit macOS architecture checks.
+Pushes or manual runs on `main` produce an immutable
+`build-<run-id>-<attempt>` pre-release. Version-tag runs publish using the
+`v<version>` tag, which must match [CMakeLists.txt](CMakeLists.txt). Pull requests,
+other branches, failed jobs, and `-tests-failed` artifacts cannot publish.
 
-1. Finish the license/distribution review below. Decide whether the repository
-   and downloads will be public or remain limited to authorized testers.
-2. Set the version in [CMakeLists.txt](CMakeLists.txt), commit the release
-   changes, and use an immutable version tag such as `v0.1.0`. Pushes of `v*`
-   tags run the build workflow and upload artifacts from that exact commit.
-   This does not publish a GitHub Release; create one manually and attach the
-   tested packages, or add a separately reviewed release-publishing job later.
-3. Require passing tests and clean-machine checks for every advertised platform.
-   Apply platform signing/notarization before computing final checksums.
-4. Download CI artifacts while retained. Unpack GitHub's outer artifact ZIP;
-   the Windows setup `.exe`, Linux `.deb`, and macOS DMG inside are the actual
-   distributables.
-5. Rename assets to identify version, OS, and CPU, for example:
+The publisher requires exactly the expected Linux `.deb`, Windows setup
+`.exe`, and Intel and Apple Silicon macOS `.dmg` files from the current run.
+It generates `SHA256SUMS.txt`, `build-info.json`,
+and notes identifying the source commit, workflow run, safety checks, unsigned
+status, and coverage limits. It uploads assets to a draft before publishing;
+an upload failure leaves the release hidden as a draft. Only this final job
+receives `contents: write` through the built-in token.
 
-   ```text
-   RFdudeSmithChartV2-0.1.0-windows-x64-setup.exe
-   RFdudeSmithChartV2-0.1.0-macos-arm64.dmg
-   RFdudeSmithChartV2-0.1.0-macos-x64.dmg
-   RFdudeSmithChartV2-0.1.0-linux-x64.deb
-   SHA256SUMS.txt
-   ```
+Existing releases are never overwritten. This preserves the original
+`v0.1.0` KDE warning and recovery instructions. A version-tag run whose release
+already exists fails publication rather than replacing assets; use a new
+version/tag. Rerunning `main` creates a new attempt-specific release.
+No stable/latest designation is applied automatically. Use the repository's
+Releases page, not expiring Actions artifact links, for downloads.
 
-   These are recommended release names, not the current default CPack names.
-   Generate SHA-256 checksums from the final assets (`sha256sum` on Linux,
-   `shasum -a 256` on macOS, `Get-FileHash -Algorithm SHA256` on Windows).
-6. On GitHub, open **Releases -> Draft a new release**, select the tag, attach
-   all tested assets and checksums, and mark the first prototype a **pre-release**.
-   Include supported/tested OS versions, CPU choices, installation steps,
-   signing status, prerequisites, known limits, and changes since the last version.
-7. Publish only when the complete set is ready. Link the README to the release
-   page, not to an expiring Actions artifact. GitHub's automatically generated
-   "Source code" archives are not ready-to-run applications.
+The installers remain unsigned, unsupported pre-releases; macOS DMGs are not
+notarized. Passing CI does not replace clean-machine install/uninstall checks,
+licensing review, or future signing/notarization. Source archives attached by GitHub are
+not ready-to-run applications. Public repository releases are public downloads;
+private repository releases remain access-controlled.
 
-Public users can download public Release assets without building the source.
-Private repository releases remain access-controlled. GitHub Pages or a
-separate website can be added later; neither is needed for the initial downloads.
-
-### Subsequent automation
-
-Add a dedicated release workflow, keeping PR builds separate:
-
-- Trigger on version tags and optionally manual dispatch; verify the tag agrees
-  with the CMake version. Pin Qt/toolchains and explicit runner architectures.
-- Build, test, deploy, sign, and package natively for each supported target.
-- Collect all platform assets in a final job that creates/updates a **draft**
-  release, with checksums and release notes. Do not publish a partial release
-  if a platform job fails.
-- Grant `contents: write` only to the release publishing job. Keep signing keys
-  and tokens in protected secrets/environments, never in the repository.
-  Require approval for signing/publishing and do not expose secrets to PR builds.
-- Keep manual approval for publication initially. Retain the exact dependency
-  versions, source, build metadata, and symbols needed to diagnose each release.
-
-No signing credentials, paid service, updater, or automated publishing is
-introduced by this guide.
+See [GITHUB_ACTIONS.md](GITHUB_ACTIONS.md) for fork permissions and operational
+details. Local `cpack` validates installers but does not publish them.
 
 ## 6. Open-source and redistribution checklist
 
