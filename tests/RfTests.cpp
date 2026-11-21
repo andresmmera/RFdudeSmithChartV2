@@ -333,7 +333,10 @@ private slots:
             QCOMPARE(snapshot.trajectories.size(), d.components.size());
             for (std::size_t i = 0; i < snapshot.trajectories.size(); ++i) {
                 const auto& path = snapshot.trajectories[i];
-                QCOMPARE(path.size(), std::size_t(5));
+                if (d.components[i].kind == rf::Kind::Measured)
+                    QCOMPARE(path.size(), std::size_t(2));
+                else
+                    QVERIFY(path.size() >= 65 && path.size() <= 257);
                 QVERIFY(near(path.front(), snapshot.nodes[i].reflection(50)));
                 QVERIFY(near(path.back(), snapshot.nodes[i + 1].reflection(50)));
                 for (const auto gamma : path) {

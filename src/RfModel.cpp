@@ -398,9 +398,9 @@ Evaluation evaluateAtFrequency(const Document& d, double frequencyMHz)
         auto& path = result.trajectories.emplace_back();
         const double angle = isTransmissionLine(c.kind)
             ? lineParameters(c).lengthDegrees * frequencyMHz / c.referenceMHz : 0;
-        const int steps = d.simpleTrajectories && c.kind != Kind::Measured
-            ? 4
-            : c.kind == Kind::Measured ? 1
+        const int steps = c.kind == Kind::Measured ? 1
+            : d.simpleTrajectories
+                ? static_cast<int>(std::clamp(std::abs(angle) * 4, 64.0, 256.0))
             : static_cast<int>(std::clamp(std::abs(angle) * 4, 256.0, 8192.0));
         path.reserve(static_cast<std::size_t>(steps + 1));
         for (int i = 0; i <= steps; ++i) {

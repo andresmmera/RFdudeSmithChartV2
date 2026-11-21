@@ -186,8 +186,8 @@ or runs remote builds.
   Smith chart, with a separate linear/logarithmic sweep range and point count.
 - Optional simple 3-frequency Smith-chart mode. It draws low/current/high
   component contour lines as three separate open paths, plus matching
-  S11/S22 points; each contour is limited to five points and measured blocks
-  retain their endpoint pair. The paths are not filled. The default span
+  S11/S22 points; simple contours use 64–256 segments for smooth open lines,
+  and measured blocks retain their endpoint pair. The paths are not filled. The default span
   is ±10% of the current frequency and may be configured from 0.1% to 100%.
   detailed mode retains dense component and frequency-contour curves.
 - Touchstone 1.x `.s2p` circuit blocks and `.s1p` frequency-dependent loads,
