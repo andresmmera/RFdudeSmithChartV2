@@ -27,11 +27,14 @@ public:
     void setNetwork(const rf::Document& document);
     QImage responseImage();
     bool plotHasFocus() const;
+    void focusPlot();
 
 signals:
     void frequencySelected(double frequencyMHz);
     void displayOptionsChanged(bool gmax, bool k, bool b1,
                                bool automaticScale, double ceilingDb, double floorDb);
+    void sweepChanged(double startMHz, double stopMHz, int points,
+                      bool logarithmic, double portOhms, bool terminated);
     void frequencyTuneRequested(int direction);
 
 private:

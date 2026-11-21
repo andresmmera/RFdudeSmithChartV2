@@ -134,6 +134,18 @@ private slots:
         QCOMPARE(rf::measuredParameters(data, 1500, 50), data.samples.back().s);
         QVERIFY_EXCEPTION_THROWN(rf::measuredParameters(data, 499, 50), std::invalid_argument);
         QVERIFY_EXCEPTION_THROWN(rf::measuredParameters(data, 1501, 50), std::invalid_argument);
+        rf::Document measuredDocument;
+        measuredDocument.frequencyMHz = 1000;
+        measuredDocument.components = {block(data)};
+        measuredDocument.selected = 0;
+        QCOMPARE(rf::clampMeasuredFrequency(measuredDocument, 499), 500.0);
+        QCOMPARE(rf::clampMeasuredFrequency(measuredDocument, 1501), 1500.0);
+        QCOMPARE(rf::clampMeasuredFrequency(measuredDocument, 1000), 1000.0);
+        QCOMPARE(rf::nearestMeasuredFrequency(measuredDocument, 1000), 1000.0);
+        QCOMPARE(rf::nearestMeasuredFrequency(measuredDocument, 499), 500.0);
+        QCOMPARE(rf::nearestMeasuredFrequency(measuredDocument, 1501), 1500.0);
+        QCOMPARE(rf::stepMeasuredFrequency(measuredDocument, 500, 1), 1500.0);
+        QCOMPARE(rf::stepMeasuredFrequency(measuredDocument, 1500, -1), 500.0);
         auto converted = data;
         converted.referenceOhms = 75;
         for (auto& sample : converted.samples)
@@ -213,7 +225,9 @@ private slots:
         d.frequencyMHz = 1500;
         QVERIFY(rf::startingImpedance(d).isOpen());
         d.frequencyMHz = 499;
-        QVERIFY_EXCEPTION_THROWN(rf::validate(d), std::invalid_argument);
+        QCOMPARE(rf::clampMeasuredFrequency(d, d.frequencyMHz), 500.0);
+        d.frequencyMHz = rf::clampMeasuredFrequency(d, d.frequencyMHz);
+        rf::validate(d);
         d.frequencyMHz = 1000;
         auto json = QJsonDocument::fromJson(documents::toJson(d)).object();
         QCOMPARE(json.value("version").toInt(), 3);

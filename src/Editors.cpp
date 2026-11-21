@@ -563,10 +563,11 @@ std::optional<rf::Document> editSettings(QWidget* parent, const rf::Document& or
     auto result = original;
     QObject::connect(box, &QDialogButtonBox::accepted, &dialog, [&] {
         result.title = title->text().toStdString();
-        result.frequencyMHz = frequency->value();
+        result.frequencyMHz = rf::clampMeasuredFrequency(original, frequency->value());
         result.referenceOhms = z0->value();
         result.startOhms = {startR->value(), startX->value()};
         if (!measuredLoad->isChecked()) result.measuredLoad.reset();
+        result.frequencyMHz = rf::clampMeasuredFrequency(result, result.frequencyMHz);
         result.goalOhms = {goalR->value(), goalX->value()};
         result.tunePercent = step->value();
         for (std::size_t i = 0; i < 3; ++i) result.frequencyPresets[i] = presets[i]->value();

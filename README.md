@@ -38,13 +38,15 @@ Open the supplied legacy example directly:
 ./build/RFdudeSmithChartV2 examples/legacy-example.lls
 ```
 
-Open the included RFdude project example:
+Open one of the included RFdude project examples:
 
 ```sh
 ./build/RFdudeSmithChartV2 examples/network.rfs_45Mfilter.json
+./build/RFdudeSmithChartV2 examples/ex3_network.rfs.json
+./build/RFdudeSmithChartV2 examples/ex4_raw_xtalfilt_network.rfs.json
 ```
 
-Packaged installs include both examples under
+Packaged installs include all supplied examples under
 `share/RFdudeSmithChartV2/examples` inside the application install location.
 Use **File -> Open examples...** to browse them without finding the install
 directory yourself. Examples open as templates: **Save** asks for a filename
@@ -426,8 +428,9 @@ loss, are included.
   an out-of-range marker is reported explicitly without moving the sweep limits.
 - Circuit edits, undo/redo, and new/open update an open response window.
   Selecting a component or changing plot controls does not modify the circuit.
-  Closing/reopening the window retains controls during this application session;
-  sweep settings are not saved in project JSON.
+  Closing/reopening the window retains controls during this application session.
+  Applied sweep settings and the selected response mode are saved in project JSON
+  and restored when the project is opened.
 - **Export plot PNG...** writes the plot, title, applied range/port settings, and
   marker readout. Pending, unapplied controls do not appear in the report.
   **File -> Export chart / schematic / response PNG...** combines the Smith

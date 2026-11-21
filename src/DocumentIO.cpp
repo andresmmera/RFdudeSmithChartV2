@@ -237,6 +237,15 @@ QByteArray toJson(const rf::Document& d)
                                    {"points", d.trajectoryPoints},
                                    {"logarithmic", d.trajectoryLogarithmic},
                                    {"simpleSpanPercent", d.simpleTrajectorySpanPercent}}}};
+    if (d.frequencyResponseConfigured) {
+        root.insert("frequencyResponse", QJsonObject{
+            {"startMHz", d.frequencyResponseStartMHz},
+            {"stopMHz", d.frequencyResponseStopMHz},
+            {"points", d.frequencyResponsePoints},
+            {"logarithmic", d.frequencyResponseLogarithmic},
+            {"portOhms", d.frequencyResponsePortOhms},
+            {"terminated", d.frequencyResponseTerminated}});
+    }
     if (measured)
         root.insert("measuredLoad", d.measuredLoad ? QJsonValue(measuredJson(*d.measuredLoad))
                                                   : QJsonValue(QJsonValue::Null));
@@ -305,6 +314,16 @@ rf::Document fromJson(const QByteArray& data)
         d.trajectoryLogarithmic = boolean(trajectory, "logarithmic");
         d.simpleTrajectorySpanPercent =
             optionalNumber(trajectory, "simpleSpanPercent", 10);
+    }
+    if (o.contains("frequencyResponse")) {
+        const auto response = object(o, "frequencyResponse");
+        d.frequencyResponseConfigured = true;
+        d.frequencyResponseStartMHz = number(response, "startMHz");
+        d.frequencyResponseStopMHz = number(response, "stopMHz");
+        d.frequencyResponsePoints = integer(response, "points");
+        d.frequencyResponseLogarithmic = boolean(response, "logarithmic");
+        d.frequencyResponsePortOhms = number(response, "portOhms");
+        d.frequencyResponseTerminated = boolean(response, "terminated");
     }
     if (!o.value("components").isArray()) fail("Missing component array.");
     for (const auto entry : o.value("components").toArray()) {

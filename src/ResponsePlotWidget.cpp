@@ -114,9 +114,22 @@ void ResponsePlotWidget::clearMarker()
     update();
 }
 
+bool ResponsePlotWidget::event(QEvent* event)
+{
+    if (event->type() == QEvent::ShortcutOverride) {
+        const auto key = static_cast<QKeyEvent*>(event)->key();
+        if (key == Qt::Key_Left || key == Qt::Key_Right
+            || key == Qt::Key_Up || key == Qt::Key_Down) {
+            event->accept();
+            return true;
+        }
+    }
+    return QWidget::event(event);
+}
+
 QRectF ResponsePlotWidget::plotRect() const
 {
-    return QRectF(64, 42, width() - 88, height() - 102);
+    return QRectF(64, 52, width() - 88, height() - 112);
 }
 
 double ResponsePlotWidget::fraction(double frequencyMHz) const
@@ -154,12 +167,16 @@ void ResponsePlotWidget::paintEvent(QPaintEvent*)
     const auto area = plotRect();
     const std::array<QColor, 3> colors{QColor(190, 45, 40), QColor(30, 95, 200), QColor(15, 120, 65)};
     const std::array<QString, 3> names{"S11", "S21", "S22"};
-    int legendIndex = onePort_ ? 1 : 3;
+    struct LegendEntry
+    {
+        QString name;
+        QColor color;
+        Qt::PenStyle style;
+    };
+    std::vector<LegendEntry> legendEntries;
     for (int i = 0; i < (onePort_ ? 1 : 3); ++i) {
-        painter.setPen(QPen(colors[i], 2, i == 2 ? Qt::DashLine : Qt::SolidLine));
-        const int x = 70 + i * 95;
-        painter.drawLine(x, 20, x + 24, 20);
-        painter.drawText(x + 30, 25, names[i]);
+        legendEntries.push_back({names[i], colors[i],
+                                 i == 2 ? Qt::DashLine : Qt::SolidLine});
     }
     const std::array<std::pair<bool, QColor>, 3> stabilityLegend{
         std::pair{showGmax_, QColor("#8a3fb4")},
@@ -169,19 +186,27 @@ void ResponsePlotWidget::paintEvent(QPaintEvent*)
     const std::array<QString, 3> stabilityNames{"Gmax/MSG", "K", "B1"};
     for (int i = 0; i < 3; ++i) {
         if (!stabilityLegend[static_cast<std::size_t>(i)].first || onePort_) continue;
-        const int x = 70 + legendIndex * 95;
-        painter.setPen(QPen(stabilityLegend[static_cast<std::size_t>(i)].second, 2,
-                            i == 0 ? Qt::SolidLine : Qt::DashLine));
-        painter.drawLine(x, 20, x + 24, 20);
-        painter.drawText(x + 30, 25, stabilityNames[i]);
-        ++legendIndex;
+        legendEntries.push_back({stabilityNames[i],
+                                 stabilityLegend[static_cast<std::size_t>(i)].second,
+                                 i == 0 ? Qt::SolidLine : Qt::DashLine});
     }
-    painter.setPen(Qt::black);
-    painter.drawText(QRectF(area.right() - 190, 8, 190, 24), Qt::AlignRight,
-                     tr("Magnitude (dB), floor %1").arg(floorDb_, 0, 'g', 5));
-    if (showK_ || showB1_) {
-        painter.drawText(QRectF(area.right() - 230, 8, 230, 24), Qt::AlignRight,
-                         tr("Right axis: stability"));
+    int legendX = 12;
+    int legendY = 17;
+    constexpr int legendRowHeight = 24;
+    constexpr int legendLineWidth = 24;
+    constexpr int legendGap = 14;
+    for (const auto& entry : legendEntries) {
+        const int textWidth = painter.fontMetrics().horizontalAdvance(entry.name);
+        const int itemWidth = legendLineWidth + 6 + textWidth + legendGap;
+        if (legendX > 12 && legendX + itemWidth > width() - 12) {
+            legendX = 12;
+            legendY += legendRowHeight;
+        }
+        painter.setPen(QPen(entry.color, 2, entry.style));
+        painter.drawLine(legendX, legendY, legendX + legendLineWidth, legendY);
+        painter.setPen(Qt::black);
+        painter.drawText(legendX + legendLineWidth + 6, legendY + 5, entry.name);
+        legendX += itemWidth;
     }
     for (int i = 0; i <= 5; ++i) {
         const double y = area.top() + i * area.height() / 5;
@@ -210,8 +235,14 @@ void ResponsePlotWidget::paintEvent(QPaintEvent*)
                          QString::number(f, 'g', 5));
     }
     painter.drawRect(area);
-    painter.drawText(QRectF(area.left(), height() - 28, area.width(), 22), Qt::AlignCenter,
+    painter.drawText(QRectF(area.left(), height() - 52, area.width(), 22), Qt::AlignCenter,
                      sweep_.logarithmic ? tr("Frequency (MHz, logarithmic)") : tr("Frequency (MHz, linear)"));
+    painter.drawText(QRectF(2, height() - 28, 210, 22), Qt::AlignLeft,
+                     tr("Magnitude (dB), floor %1").arg(floorDb_, 0, 'g', 5));
+    if (!onePort_ && (showK_ || showB1_)) {
+        painter.drawText(QRectF(area.right() - 210, height() - 28, 210, 22), Qt::AlignRight,
+                         tr("Right axis: stability"));
+    }
     if (samples_.empty()) {
         painter.drawText(area, Qt::AlignCenter, tr("No response - apply a valid sweep."));
         return;
@@ -336,11 +367,17 @@ void ResponsePlotWidget::keyPressEvent(QKeyEvent* event)
 {
     switch (event->key()) {
     case Qt::Key_Up:
-    case Qt::Key_Right:
         emit frequencyTuneRequested(1);
         event->accept();
         break;
     case Qt::Key_Down:
+        emit frequencyTuneRequested(-1);
+        event->accept();
+        break;
+    case Qt::Key_Right:
+        emit frequencyTuneRequested(1);
+        event->accept();
+        break;
     case Qt::Key_Left:
         emit frequencyTuneRequested(-1);
         event->accept();

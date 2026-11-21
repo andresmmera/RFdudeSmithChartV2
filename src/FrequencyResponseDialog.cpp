@@ -67,17 +67,27 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
     explanation->setWordWrap(true);
     layout->addWidget(explanation);
     auto* controls = new QGridLayout;
-    sweep_.startMHz = std::max(1e-9, document.frequencyMHz / 10);
-    sweep_.stopMHz = std::min(1e12, document.frequencyMHz * 2);
-    sweep_.portOhms = document.referenceOhms;
-    const auto range = rf::measuredFrequencyRange(document);
-    sweep_.startMHz = std::max(sweep_.startMHz, range.first);
-    sweep_.stopMHz = std::min(sweep_.stopMHz, range.second);
-    if (sweep_.startMHz >= sweep_.stopMHz && range.first > 0) {
-        sweep_.startMHz = range.first;
-        sweep_.stopMHz = range.second;
+    if (document.frequencyResponseConfigured) {
+        sweep_.startMHz = document.frequencyResponseStartMHz;
+        sweep_.stopMHz = document.frequencyResponseStopMHz;
+        sweep_.points = document.frequencyResponsePoints;
+        sweep_.logarithmic = document.frequencyResponseLogarithmic;
+        sweep_.portOhms = document.frequencyResponsePortOhms;
+    } else {
+        sweep_.startMHz = std::max(1e-9, document.frequencyMHz / 10);
+        sweep_.stopMHz = std::min(1e12, document.frequencyMHz * 2);
+        sweep_.portOhms = document.referenceOhms;
+        const auto range = rf::measuredFrequencyRange(document);
+        sweep_.startMHz = std::max(sweep_.startMHz, range.first);
+        sweep_.stopMHz = std::min(sweep_.stopMHz, range.second);
+        if (sweep_.startMHz >= sweep_.stopMHz && range.first > 0) {
+            sweep_.startMHz = range.first;
+            sweep_.stopMHz = range.second;
+        }
     }
-    terminated_ = true; // S11 view should be the default. The S11/S21/S22 will be correct only when the load is terminated with the same impedance as the source.
+    terminated_ = document.frequencyResponseConfigured
+        ? document.frequencyResponseTerminated
+        : true; // S11 view is the default for projects without saved response settings.
     start_ = frequencyField("sweepStart", sweep_.startMHz);
     stop_ = frequencyField("sweepStop", sweep_.stopMHz);
     ports_ = field("sweepPorts", sweep_.portOhms, this);
@@ -90,6 +100,7 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
     scale_ = new QComboBox;
     scale_->setObjectName("sweepScale");
     scale_->addItems({tr("Linear"), tr("Logarithmic")});
+    scale_->setCurrentIndex(sweep_.logarithmic ? 1 : 0);
     mode_ = new QComboBox;
     mode_->setObjectName("responseMode");
     mode_->addItems({tr("Two-port circuit: S11/S21/S22"), tr("Terminated input: S11 only")});
@@ -188,7 +199,10 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
     connect(touchstoneButton, &QPushButton::clicked, this, &FrequencyResponseDialog::exportTouchstone);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     layout->addWidget(buttons);
-    connect(plot_, &ResponsePlotWidget::frequencySelected, this, &FrequencyResponseDialog::frequencySelected);
+    connect(plot_, &ResponsePlotWidget::frequencySelected, this,
+            [this](double frequency) {
+                emit frequencySelected(rf::nearestMeasuredFrequency(document_, frequency));
+            });
     connect(plot_, &ResponsePlotWidget::frequencyTuneRequested, this,
             [this](int direction) { emit frequencyTuneRequested(direction); });
     applyDisplayOptions();
@@ -206,6 +220,9 @@ void FrequencyResponseDialog::applySweep()
     stabilityK_->setEnabled(stabilityEnabled);
     stabilityB1_->setEnabled(stabilityEnabled);
     calculate();
+    if (sweep_.stopMHz > sweep_.startMHz)
+        emit sweepChanged(sweep_.startMHz, sweep_.stopMHz, sweep_.points,
+                          sweep_.logarithmic, sweep_.portOhms, terminated_);
 }
 
 void FrequencyResponseDialog::applyDisplayOptions()
@@ -244,6 +261,11 @@ bool FrequencyResponseDialog::plotHasFocus() const
     return plot_ && plot_->hasFocus();
 }
 
+void FrequencyResponseDialog::focusPlot()
+{
+    if (plot_) plot_->setFocus(Qt::OtherFocusReason);
+}
+
 void FrequencyResponseDialog::autoApply()
 {
     if (updatingControls_) return;
@@ -263,7 +285,34 @@ void FrequencyResponseDialog::setNetwork(const rf::Document& document)
         || (terminated_ && document_.startOhms != document.startOhms);
     const bool rangeChanged = rf::measuredFrequencyRange(document_) != rf::measuredFrequencyRange(document);
     const bool loadChanged = document_.measuredLoad.has_value() != document.measuredLoad.has_value();
+    const bool responseChanged =
+        document_.frequencyResponseConfigured != document.frequencyResponseConfigured
+        || document_.frequencyResponseStartMHz != document.frequencyResponseStartMHz
+        || document_.frequencyResponseStopMHz != document.frequencyResponseStopMHz
+        || document_.frequencyResponsePoints != document.frequencyResponsePoints
+        || document_.frequencyResponseLogarithmic != document.frequencyResponseLogarithmic
+        || document_.frequencyResponsePortOhms != document.frequencyResponsePortOhms
+        || document_.frequencyResponseTerminated != document.frequencyResponseTerminated;
     document_ = document;
+    updatingControls_ = true;
+    if (document_.frequencyResponseConfigured) {
+        const QSignalBlocker startBlock(start_);
+        const QSignalBlocker stopBlock(stop_);
+        const QSignalBlocker pointsBlock(points_);
+        const QSignalBlocker scaleBlock(scale_);
+        const QSignalBlocker portsBlock(ports_);
+        const QSignalBlocker modeBlock(mode_);
+        start_->setValue(document_.frequencyResponseStartMHz);
+        stop_->setValue(document_.frequencyResponseStopMHz);
+        points_->setValue(document_.frequencyResponsePoints);
+        scale_->setCurrentIndex(document_.frequencyResponseLogarithmic ? 1 : 0);
+        ports_->setValue(document_.frequencyResponsePortOhms);
+        mode_->setCurrentIndex(document_.frequencyResponseTerminated ? 1 : 0);
+        sweep_ = {document_.frequencyResponseStartMHz, document_.frequencyResponseStopMHz,
+                  document_.frequencyResponsePoints, document_.frequencyResponseLogarithmic,
+                  document_.frequencyResponsePortOhms};
+        terminated_ = document_.frequencyResponseTerminated;
+    }
     {
         const QSignalBlocker gmaxBlock(stabilityGmax_);
         const QSignalBlocker kBlock(stabilityK_);
@@ -296,15 +345,14 @@ void FrequencyResponseDialog::setNetwork(const rf::Document& document)
     if (loadChanged && document.measuredLoad) {
         // A measured load only exists in the terminated view; removing it leaves the mode as is.
         terminated_ = true;
-        updatingControls_ = true;
         mode_->setCurrentIndex(1);
-        updatingControls_ = false;
         stabilityGmax_->setEnabled(false);
         stabilityK_->setEnabled(false);
         stabilityB1_->setEnabled(false);
         plot_->setStabilityTraces(false, false, false);
     }
-    if (changed) {
+    updatingControls_ = false;
+    if (changed || responseChanged) {
         if (rangeChanged) constrainSweep();
         calculate();
     } else updateMarker();

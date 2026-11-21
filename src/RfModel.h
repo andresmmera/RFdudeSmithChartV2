@@ -104,6 +104,13 @@ struct Document
     bool magnitudeAutoScale = true;
     double magnitudeCeilingDb = 0;
     double magnitudeFloorDb = -100;
+    bool frequencyResponseConfigured = false;
+    double frequencyResponseStartMHz = 100;
+    double frequencyResponseStopMHz = 2000;
+    int frequencyResponsePoints = 401;
+    bool frequencyResponseLogarithmic = false;
+    double frequencyResponsePortOhms = 50;
+    bool frequencyResponseTerminated = true;
     bool s11Trajectory = false;
     bool s22Trajectory = false;
     bool simpleTrajectories = false;

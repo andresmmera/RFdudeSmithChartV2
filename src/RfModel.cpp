@@ -233,6 +233,15 @@ void validate(const Document& d)
         throw std::invalid_argument("Magnitude ceiling must be between 0 dB and 300 dB.");
     if (!d.magnitudeAutoScale && d.magnitudeCeilingDb <= d.magnitudeFloorDb)
         throw std::invalid_argument("Magnitude ceiling must exceed the magnitude floor.");
+    if (d.frequencyResponseConfigured) {
+        positive(d.frequencyResponseStartMHz, "Frequency response start");
+        positive(d.frequencyResponseStopMHz, "Frequency response stop");
+        positive(d.frequencyResponsePortOhms, "Frequency response port reference");
+        if (d.frequencyResponseStopMHz < d.frequencyResponseStartMHz)
+            throw std::invalid_argument("Frequency response stop must not precede start.");
+        if (d.frequencyResponsePoints < 2 || d.frequencyResponsePoints > 2001)
+            throw std::invalid_argument("Frequency response sweep must contain between 2 and 2001 points.");
+    }
     positive(d.trajectoryStartMHz, "Trajectory start");
     positive(d.trajectoryStopMHz, "Trajectory stop");
     if (d.trajectoryStopMHz <= d.trajectoryStartMHz)
@@ -260,9 +269,6 @@ void validate(const Document& d)
         if (d.referenceOverlay->ports != 1 && d.referenceOverlay->ports != 2)
             throw std::invalid_argument("A reference overlay requires one-port or two-port data.");
     }
-    const auto range = measuredFrequencyRange(d);
-    if (d.frequencyMHz < range.first || d.frequencyMHz > range.second)
-        throw std::invalid_argument("Analysis frequency is outside the common Touchstone frequency range.");
 }
 
 Component defaultComponent(Kind kind, double frequencyMHz, double referenceOhms)

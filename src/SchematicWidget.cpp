@@ -216,8 +216,7 @@ bool SchematicWidget::event(QEvent* event)
     // Application editing shortcuts take precedence over the view's arrow-key scrolling.
     if (event->type() == QEvent::ShortcutOverride) {
         const auto key = static_cast<QKeyEvent*>(event)->key();
-        if (key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Up
-            || key == Qt::Key_Down || key == Qt::Key_Delete) {
+        if (key == Qt::Key_Up || key == Qt::Key_Down || key == Qt::Key_Delete) {
             event->ignore();
             return true;
         }

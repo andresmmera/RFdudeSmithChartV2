@@ -183,7 +183,11 @@ void MainWindow::buildActions()
     auto* filter = action(network, tr("Simple filter wizard..."), QKeySequence("Ctrl+W"), "filterWizard", [this] {
         const auto value = filterWizard(this, document_);
         if (value) {
-            change([&](rf::Document& d) { d = *value; });
+        change([&](rf::Document& d) {
+            d = *value;
+            d.frequencyResponseConfigured = true;
+            d.frequencyResponseTerminated = false;
+        });
             // A filter is judged by its transmission, so show the two-port response.
             twoPortResponse_ = true;
             if (response_) response_->setTerminated(false);
@@ -283,15 +287,6 @@ void MainWindow::buildActions()
     action(network, tr("Frequency..."), QKeySequence("F"), "frequency", [this] { settings("frequency"); });
     action(network, tr("Reference Z0..."), QKeySequence("Z"), "reference", [this] { settings("z0"); });
     action(network, tr("Tuning percentage..."), QKeySequence("P"), "tuneStep", [this] { settings("step"); });
-    action(network, tr("Previous component"), QKeySequence(Qt::Key_Left), "previous", [this] {
-        if (!document_.components.empty())
-            select((document_.selected + static_cast<int>(document_.components.size()) - 1)
-                % static_cast<int>(document_.components.size()));
-    });
-    action(network, tr("Next component"), QKeySequence(Qt::Key_Right), "next", [this] {
-        if (!document_.components.empty())
-            select((document_.selected + 1) % static_cast<int>(document_.components.size()));
-    });
     for (const bool increase : {true, false}) {
         for (const auto modifier : {Qt::NoModifier, Qt::ControlModifier, Qt::ShiftModifier}) {
             const int key = increase ? Qt::Key_Up : Qt::Key_Down;
@@ -306,7 +301,10 @@ void MainWindow::buildActions()
     for (int i = 0; i < 3; ++i) {
         action(network, tr("Frequency preset %1").arg(i + 1), QKeySequence(Qt::Key_F1 + i),
             QString("preset%1").arg(i + 1), [this, i] {
-                change([i](rf::Document& d) { d.frequencyMHz = d.frequencyPresets[static_cast<std::size_t>(i)]; });
+                change([i](rf::Document& d) {
+                    d.frequencyMHz = rf::clampMeasuredFrequency(
+                        d, d.frequencyPresets[static_cast<std::size_t>(i)]);
+                });
             });
     }
     action(help, tr("About"), {}, "about", [this] {
@@ -437,7 +435,9 @@ void MainWindow::ensureFrequencyResponse()
             response_->setTerminated(false);
         }
         connect(response_, &FrequencyResponseDialog::frequencySelected, this, [this](double frequency) {
-            change([frequency](rf::Document& d) { d.frequencyMHz = frequency; });
+            change([frequency](rf::Document& d) {
+                d.frequencyMHz = rf::nearestMeasuredFrequency(d, frequency);
+            });
         });
         connect(response_, &FrequencyResponseDialog::frequencyTuneRequested, this, [this](int direction) {
             tune(direction, Qt::ControlModifier);
@@ -454,6 +454,19 @@ void MainWindow::ensureFrequencyResponse()
                         d.magnitudeFloorDb = floorDb;
                     });
                 });
+        connect(response_, &FrequencyResponseDialog::sweepChanged, this,
+                [this](double startMHz, double stopMHz, int points,
+                       bool logarithmic, double portOhms, bool terminated) {
+                    change([=](rf::Document& d) {
+                        d.frequencyResponseConfigured = true;
+                        d.frequencyResponseStartMHz = startMHz;
+                        d.frequencyResponseStopMHz = stopMHz;
+                        d.frequencyResponsePoints = points;
+                        d.frequencyResponseLogarithmic = logarithmic;
+                        d.frequencyResponsePortOhms = portOhms;
+                        d.frequencyResponseTerminated = terminated;
+                    });
+                });
     } else {
         response_->setNetwork(document_);
     }
@@ -465,6 +478,7 @@ void MainWindow::showFrequencyResponse()
     responseDock_->show();
     response_->show();
     responseDock_->raise();
+    response_->focusPlot();
 }
 
 void MainWindow::showResponsePanel()
@@ -479,6 +493,10 @@ bool MainWindow::change(const std::function<void(rf::Document&)>& mutation)
     try {
         auto next = document_;
         mutation(next);
+        if (next.measuredLoad.has_value()
+            || std::any_of(next.components.begin(), next.components.end(),
+                           [](const rf::Component& c) { return c.kind == rf::Kind::Measured; }))
+            next.frequencyMHz = rf::nearestMeasuredFrequency(next, next.frequencyMHz);
         if (next == document_) return true;
         auto result = rf::evaluate(next);
         undo_.push_back(document_);
@@ -559,12 +577,28 @@ bool MainWindow::importTouchstone(const QString& path)
         const auto data = rf::parseTouchstone(std::string_view(bytes.constData(), bytes.size()),
             suffix == "s1p" ? 1 : 2, QFileInfo(path).fileName().toStdString());
         if (!change([&](rf::Document& d) {
-            if (data.ports == 1) d.measuredLoad = data;
+            if (data.ports == 1) {
+                d.measuredLoad = data;
+                d.frequencyResponseConfigured = true;
+                d.frequencyResponseTerminated = true;
+                d.frequencyResponseStartMHz = data.samples.front().frequencyMHz;
+                d.frequencyResponseStopMHz = data.samples.back().frequencyMHz;
+                d.frequencyResponsePoints = 401;
+                d.frequencyResponseLogarithmic = false;
+                d.frequencyResponsePortOhms = data.referenceOhms;
+            }
             else {
                 auto c = rf::defaultComponent(rf::Kind::Measured, d.frequencyMHz, d.referenceOhms);
                 c.measured = data;
                 d.components.insert(d.components.begin() + d.selected + 1, std::move(c));
                 ++d.selected;
+                d.frequencyResponseConfigured = true;
+                d.frequencyResponseTerminated = false;
+                d.frequencyResponseStartMHz = data.samples.front().frequencyMHz;
+                d.frequencyResponseStopMHz = data.samples.back().frequencyMHz;
+                d.frequencyResponsePoints = 401;
+                d.frequencyResponseLogarithmic = false;
+                d.frequencyResponsePortOhms = data.referenceOhms;
             }
             const auto range = rf::measuredFrequencyRange(d);
             d.frequencyMHz = std::clamp(d.frequencyMHz, range.first, range.second);
@@ -625,10 +659,20 @@ void MainWindow::tune(int direction, Qt::KeyboardModifiers modifiers)
 {
     change([&](rf::Document& d) {
         const double multiplier = 1 + direction * d.tunePercent / 100;
-        if (modifiers.testFlag(Qt::ControlModifier)) d.frequencyMHz *= multiplier;
-        else if (modifiers.testFlag(Qt::ShiftModifier)) d.referenceOhms *= multiplier;
-        else if (response_ && response_->isVisible() && response_->plotHasFocus())
-            d.frequencyMHz *= multiplier;
+        const bool measured = d.measuredLoad.has_value()
+            || std::any_of(d.components.begin(), d.components.end(),
+                           [](const rf::Component& c) { return c.kind == rf::Kind::Measured; });
+        if (modifiers.testFlag(Qt::ControlModifier)) {
+            d.frequencyMHz = measured
+                ? rf::stepMeasuredFrequency(d, d.frequencyMHz, direction)
+                : d.frequencyMHz * multiplier;
+        } else if (modifiers.testFlag(Qt::ShiftModifier)) {
+            d.referenceOhms *= multiplier;
+        } else if (response_ && response_->isVisible() && response_->plotHasFocus()) {
+            d.frequencyMHz = measured
+                ? rf::stepMeasuredFrequency(d, d.frequencyMHz, direction)
+                : d.frequencyMHz * multiplier;
+        }
         else if (d.selected >= 0)
             rf::tune(d.components[static_cast<std::size_t>(d.selected)], d.tunePercent, direction > 0);
     });
@@ -727,6 +771,7 @@ bool MainWindow::openDocument(const QString& path)
     try {
         bool legacy = false;
         auto next = documents::load(path, &legacy);
+        next.frequencyMHz = rf::clampMeasuredFrequency(next, next.frequencyMHz);
         auto result = rf::evaluate(next);
         document_ = std::move(next);
         evaluation_ = std::move(result);

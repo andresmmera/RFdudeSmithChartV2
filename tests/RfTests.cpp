@@ -413,6 +413,13 @@ private slots:
         d.magnitudeAutoScale = false;
         d.magnitudeCeilingDb = 50;
         d.magnitudeFloorDb = -50;
+        d.frequencyResponseConfigured = true;
+        d.frequencyResponseStartMHz = 80;
+        d.frequencyResponseStopMHz = 5000;
+        d.frequencyResponsePoints = 777;
+        d.frequencyResponseLogarithmic = true;
+        d.frequencyResponsePortOhms = 75;
+        d.frequencyResponseTerminated = false;
         d.s11Trajectory = d.s22Trajectory = true;
         d.simpleTrajectories = true;
         d.simpleTrajectorySpanPercent = 17.5;

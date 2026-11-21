@@ -250,4 +250,87 @@ std::pair<double, double> measuredFrequencyRange(const Document& document)
     if (range.first > range.second) fail("datasets have no common frequency range.");
     return range;
 }
+
+double clampMeasuredFrequency(const Document& document, double frequencyMHz)
+{
+    const bool hasMeasuredData = document.measuredLoad.has_value()
+        || std::any_of(document.components.begin(), document.components.end(),
+                        [](const Component& c) { return c.kind == Kind::Measured; });
+    if (!hasMeasuredData) return frequencyMHz;
+    const auto range = measuredFrequencyRange(document);
+    return std::clamp(frequencyMHz, range.first, range.second);
+}
+
+std::vector<double> measuredFrequencies(const Document& document)
+{
+    const bool hasMeasuredData = document.measuredLoad.has_value()
+        || std::any_of(document.components.begin(), document.components.end(),
+                        [](const Component& c) { return c.kind == Kind::Measured; });
+    if (!hasMeasuredData) return {};
+    const auto range = measuredFrequencyRange(document);
+    std::vector<double> frequencies;
+    const auto include = [&](const TouchstoneData& data) {
+        for (const auto& sample : data.samples) {
+            if (sample.frequencyMHz >= range.first && sample.frequencyMHz <= range.second)
+                frequencies.push_back(sample.frequencyMHz);
+        }
+    };
+    if (document.measuredLoad) include(*document.measuredLoad);
+    for (const auto& c : document.components)
+        if (c.kind == Kind::Measured) include(c.measured);
+    std::sort(frequencies.begin(), frequencies.end());
+    frequencies.erase(std::unique(frequencies.begin(), frequencies.end(),
+                                   [](double a, double b) {
+                                       const double tolerance = 1e-9 * std::max(1.0, std::max(std::abs(a), std::abs(b)));
+                                       return std::abs(a - b) <= tolerance;
+                                   }),
+                      frequencies.end());
+    return frequencies;
+}
+
+double nearestMeasuredFrequency(const Document& document, double frequencyMHz)
+{
+    const auto frequencies = measuredFrequencies(document);
+    if (frequencies.empty()) return clampMeasuredFrequency(document, frequencyMHz);
+    const double clamped = std::clamp(frequencyMHz, frequencies.front(), frequencies.back());
+    if (std::find_if(frequencies.begin(), frequencies.end(), [clamped](double frequency) {
+            return std::abs(frequency - clamped) <= 1e-9 * std::max(1.0, std::abs(clamped));
+        }) != frequencies.end())
+        return clamped;
+    const auto upper = std::lower_bound(frequencies.begin(), frequencies.end(), clamped);
+    if (upper == frequencies.begin()) return *upper;
+    if (upper == frequencies.end()) return frequencies.back();
+    const double previous = *(upper - 1);
+    const double next = *upper;
+    const double spacing = next - previous;
+    if (spacing <= 0) return clamped;
+    if (clamped != previous && clamped != next
+        && std::abs(clamped - (previous + next) / 2) <= 1e-9 * std::max(1.0, std::abs(clamped)))
+        return clamped;
+    return clamped - previous <= next - clamped ? previous : next;
+}
+
+double stepMeasuredFrequency(const Document& document, double frequencyMHz, int direction)
+{
+    const auto frequencies = measuredFrequencies(document);
+    if (frequencies.empty()) return clampMeasuredFrequency(document, frequencyMHz);
+    if (direction == 0) return nearestMeasuredFrequency(document, frequencyMHz);
+    const double clamped = std::clamp(frequencyMHz, frequencies.front(), frequencies.back());
+    const double tolerance = 1e-9 * std::max(1.0, std::abs(clamped));
+    const auto upper = std::lower_bound(frequencies.begin(), frequencies.end(), clamped);
+    if (direction > 0) {
+        auto next = upper;
+        if (next != frequencies.end()
+            && std::abs(*next - clamped) <= tolerance)
+            ++next;
+        return next != frequencies.end() ? *next : frequencies.back();
+    }
+    if (upper == frequencies.begin()) return frequencies.front();
+    if (upper != frequencies.end()
+        && std::abs(*upper - clamped) <= tolerance) {
+        const auto previous = upper - 1;
+        return *previous;
+    }
+    return *(upper - 1);
+}
 }

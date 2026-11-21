@@ -136,8 +136,7 @@ private slots:
         auto* start = response->findChild<QDoubleSpinBox*>("sweepStart");
         QVERIFY(response->isVisible());
 
-        QCOMPARE(mode->currentIndex(), 1);  // default view is terminated S11
-        mode->setCurrentIndex(0);           // this test checks the two-port view first
+        QCOMPARE(mode->currentIndex(), 0);  // two-port Touchstone imports open in two-port view
         QCOMPARE(plot->samples().front().frequencyMHz, 500.0);
         QCOMPARE(plot->samples().back().frequencyMHz, 1500.0);
         QVERIFY(plot->pointForSample(1000, 10).y() < plot->pointForSample(1000, 0).y());
@@ -210,7 +209,7 @@ private slots:
         QCOMPARE(window.document(), before);
         action(window, "deleteComponent")->trigger();
         QVERIFY(window.document().components.empty());
-        QCOMPARE(mode->currentIndex(), 1);
+        QCOMPARE(mode->currentIndex(), 0);
         const auto loadOnly = rf::measuredParameters(*before.measuredLoad, 1000, 50).s11;
         QVERIFY(std::abs(rf::inputReflection(window.document(), 1000, 50) - loadOnly) < 1e-10);
     }
@@ -320,7 +319,7 @@ private slots:
         QCOMPARE(mode->currentIndex(), 1);  // default view is terminated S11
         mode->setCurrentIndex(0);           // the checks below use the two-port view
         QCOMPARE(plot->samples().size(), std::size_t(401));
-        QVERIFY(!window.isModified());
+        QVERIFY(window.isModified());
         dialog->findChild<QCheckBox*>("stabilityGmax")->setChecked(true);
         dialog->findChild<QCheckBox*>("stabilityK")->setChecked(true);
         dialog->findChild<QCheckBox*>("stabilityB1")->setChecked(true);
@@ -343,6 +342,14 @@ private slots:
         QCOMPARE(plot->samples().size(), std::size_t(101));
         QCOMPARE(plot->samples().front().frequencyMHz, 100.0);
         QCOMPARE(plot->samples().back().frequencyMHz, 4000.0);
+        const auto savedDocument = window.document();
+        QVERIFY(savedDocument.frequencyResponseConfigured);
+        QCOMPARE(savedDocument.frequencyResponseStartMHz, 100.0);
+        QCOMPARE(savedDocument.frequencyResponseStopMHz, 4000.0);
+        QCOMPARE(savedDocument.frequencyResponsePoints, 101);
+        QVERIFY(savedDocument.frequencyResponseLogarithmic);
+        QCOMPARE(savedDocument.frequencyResponsePortOhms, 75.0);
+        QVERIFY(!savedDocument.frequencyResponseTerminated);
         const auto expected = rf::sParameters(document.components, plot->samples()[40].frequencyMHz, 75);
         QCOMPARE(plot->samples()[40].s.s21, expected.s21);
         const auto beforeImage = dialog->responseImage();
@@ -426,9 +433,22 @@ private slots:
         document.magnitudeAutoScale = window.document().magnitudeAutoScale;
         document.magnitudeCeilingDb = window.document().magnitudeCeilingDb;
         document.magnitudeFloorDb = window.document().magnitudeFloorDb;
+        document.frequencyResponseConfigured = window.document().frequencyResponseConfigured;
+        document.frequencyResponseStartMHz = window.document().frequencyResponseStartMHz;
+        document.frequencyResponseStopMHz = window.document().frequencyResponseStopMHz;
+        document.frequencyResponsePoints = window.document().frequencyResponsePoints;
+        document.frequencyResponseLogarithmic = window.document().frequencyResponseLogarithmic;
+        document.frequencyResponsePortOhms = window.document().frequencyResponsePortOhms;
+        document.frequencyResponseTerminated = window.document().frequencyResponseTerminated;
         documents::save(path, document);
         QVERIFY(window.openDocument(path));
         QCOMPARE(dialog->responseImage(), beforeImage);
+        QCOMPARE(dialog->findChild<QDoubleSpinBox*>("sweepStart")->value(), 100.0);
+        QCOMPARE(dialog->findChild<QDoubleSpinBox*>("sweepStop")->value(), 4000.0);
+        QCOMPARE(dialog->findChild<QSpinBox*>("sweepPoints")->value(), 101);
+        QCOMPARE(dialog->findChild<QComboBox*>("sweepScale")->currentIndex(), 1);
+        QCOMPARE(dialog->findChild<QDoubleSpinBox*>("sweepPorts")->value(), 75.0);
+        QCOMPARE(dialog->findChild<QComboBox*>("responseMode")->currentIndex(), 0);
         action(window, "new")->trigger();
         QCOMPARE(plot->samples().size(), std::size_t(101));
         QCOMPARE(plot->samples()[40].s.s21, rf::Complex(1));
@@ -468,7 +488,7 @@ private slots:
         action(window, "increase_Z0")->trigger();
         QCOMPARE(ports->value(), 75.0);
         action(window, "undo")->trigger();
-        QVERIFY(!window.isModified());
+        QVERIFY(window.isModified());
         dialog->hide();
     }
 
@@ -1304,10 +1324,35 @@ private slots:
             });
             action(window, "openExamples")->trigger();
         };
-        for (const auto& name : {QString("legacy-example.lls"), QString("network.rfs_45Mfilter.json")}) {
+        for (const auto& name : {QString("legacy-example.lls"), QString("network.rfs_45Mfilter.json"),
+                                 QString("ex3_network.rfs.json"), QString("ex4_raw_xtalfilt_network.rfs.json")}) {
             openExample(name);
             QVERIFY(!window.document().components.empty());
             QVERIFY(window.isModified());
+            if (name == "ex4_raw_xtalfilt_network.rfs.json") {
+                action(window, "frequencyResponse")->trigger();
+                auto* dialog = window.findChild<FrequencyResponseDialog*>();
+                QVERIFY(dialog && dialog->isVisible());
+                QVERIFY(dialog->findChild<QComboBox*>("responseMode")->currentIndex() == 0);
+                QVERIFY(dialog->findChild<QCheckBox*>("stabilityGmax")->isChecked());
+                QVERIFY(dialog->findChild<QCheckBox*>("stabilityGmax")->isEnabled());
+                auto* plot = dialog->findChild<ResponsePlotWidget*>();
+                QTest::mouseClick(plot, Qt::LeftButton, Qt::NoModifier,
+                                  QPoint(64, plot->height() / 2));
+                QCOMPARE(window.document().frequencyMHz, 44.5);
+                QTest::mouseClick(plot, Qt::LeftButton, Qt::NoModifier,
+                                  QPoint(plot->width() - 24, plot->height() / 2));
+                QCOMPARE(window.document().frequencyMHz, 45.5);
+                QTest::keyClick(plot, Qt::Key_Right);
+                QCOMPARE(window.document().frequencyMHz, 45.5);
+                QTest::keyClick(plot, Qt::Key_Left);
+                QCOMPARE(window.document().frequencyMHz, 45.49938);
+                QTest::keyClick(plot, Qt::Key_Left);
+                QCOMPARE(window.document().frequencyMHz, 45.498749999999994);
+                QTest::keyClick(plot, Qt::Key_Right);
+                QCOMPARE(window.document().frequencyMHz, 45.49938);
+                dialog->hide();
+            }
             QTimer::singleShot(0, &window, [&] {
                 auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
                 if (!dialog) qFatal("Expected Save As for example");

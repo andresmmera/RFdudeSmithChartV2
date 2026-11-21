@@ -109,8 +109,16 @@ def main() -> None:
     if run("dpkg", "--audit").strip():
         raise RuntimeError("dpkg reports an inconsistent installation")
     check_package(package)
-    example = Path("/usr/share/RFdudeSmithChartV2/examples/network.rfs_45Mfilter.json")
-    check_visible_application(example)
+    examples = (
+        Path("/usr/share/RFdudeSmithChartV2/examples/legacy-example.lls"),
+        Path("/usr/share/RFdudeSmithChartV2/examples/network.rfs_45Mfilter.json"),
+        Path("/usr/share/RFdudeSmithChartV2/examples/ex3_network.rfs.json"),
+        Path("/usr/share/RFdudeSmithChartV2/examples/ex4_raw_xtalfilt_network.rfs.json"),
+    )
+    for example in examples:
+        if not example.is_file():
+            raise RuntimeError(f"Installed example is missing: {example}")
+    check_visible_application(examples[1])
     # Reinstall the same revision to exercise replacement of an existing installation.
     run("apt-get", "install", "-y", "--reinstall", "--no-remove", "--no-upgrade", str(package))
     assert_unchanged(before)
