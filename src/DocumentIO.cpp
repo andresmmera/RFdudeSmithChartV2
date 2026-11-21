@@ -230,11 +230,13 @@ QByteArray toJson(const rf::Document& d)
                                {"magnitudeFloorDb", d.magnitudeFloorDb},
                                {"s11Trajectory", d.s11Trajectory},
                                {"s22Trajectory", d.s22Trajectory},
+                               {"simpleTrajectories", d.simpleTrajectories},
                                {"referenceOverlayVisible", d.referenceOverlayVisible}}},
         {"trajectory", QJsonObject{{"startMHz", d.trajectoryStartMHz},
                                    {"stopMHz", d.trajectoryStopMHz},
                                    {"points", d.trajectoryPoints},
-                                   {"logarithmic", d.trajectoryLogarithmic}}}};
+                                   {"logarithmic", d.trajectoryLogarithmic},
+                                   {"simpleSpanPercent", d.simpleTrajectorySpanPercent}}}};
     if (measured)
         root.insert("measuredLoad", d.measuredLoad ? QJsonValue(measuredJson(*d.measuredLoad))
                                                   : QJsonValue(QJsonValue::Null));
@@ -291,6 +293,7 @@ rf::Document fromJson(const QByteArray& data)
     d.magnitudeFloorDb = optionalNumber(display, "magnitudeFloorDb", -100);
     d.s11Trajectory = optionalBoolean(display, "s11Trajectory", false);
     d.s22Trajectory = optionalBoolean(display, "s22Trajectory", false);
+    d.simpleTrajectories = optionalBoolean(display, "simpleTrajectories", false);
     d.referenceOverlayVisible = optionalBoolean(display, "referenceOverlayVisible", false);
     if (o.contains("referenceOverlay") && !o.value("referenceOverlay").isNull())
         d.referenceOverlay = measuredValue(object(o, "referenceOverlay"));
@@ -300,6 +303,8 @@ rf::Document fromJson(const QByteArray& data)
         d.trajectoryStopMHz = number(trajectory, "stopMHz");
         d.trajectoryPoints = integer(trajectory, "points");
         d.trajectoryLogarithmic = boolean(trajectory, "logarithmic");
+        d.simpleTrajectorySpanPercent =
+            optionalNumber(trajectory, "simpleSpanPercent", 10);
     }
     if (!o.value("components").isArray()) fail("Missing component array.");
     for (const auto entry : o.value("components").toArray()) {

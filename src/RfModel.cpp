@@ -239,6 +239,10 @@ void validate(const Document& d)
         throw std::invalid_argument("Trajectory stop must exceed start.");
     if (d.trajectoryPoints < 2 || d.trajectoryPoints > 2001)
         throw std::invalid_argument("Trajectory sweep must contain between 2 and 2001 points.");
+    if (!std::isfinite(d.simpleTrajectorySpanPercent)
+        || d.simpleTrajectorySpanPercent < 0.1
+        || d.simpleTrajectorySpanPercent > 100)
+        throw std::invalid_argument("Simple trajectory span must be between 0.1 and 100 percent.");
     if (d.components.size() > 1000)
         throw std::invalid_argument("A network may contain at most 1000 components.");
     if (d.selected < -1 || d.selected >= static_cast<int>(d.components.size())
@@ -364,8 +368,19 @@ Impedance apply(const Impedance& input, const Component& c, double frequency, do
 Evaluation evaluate(const Document& d)
 {
     validate(d);
+    return evaluateAtFrequency(d, d.frequencyMHz);
+}
+
+Evaluation evaluateAtFrequency(const Document& d, double frequencyMHz)
+{
+    validate(d);
+    positive(frequencyMHz, "Frequency");
+    Document frequencyDocument = d;
+    frequencyDocument.frequencyMHz = frequencyMHz;
+    validate(frequencyDocument);
+
     Evaluation result;
-    auto input = startingImpedance(d);
+    auto input = startingImpedance(frequencyDocument, frequencyMHz);
     result.nodes.push_back(input);
     auto updateQ = [&result](const Impedance& z) {
         if (z.isOpen())
@@ -382,19 +397,42 @@ Evaluation evaluate(const Document& d)
     for (const auto& c : d.components) {
         auto& path = result.trajectories.emplace_back();
         const double angle = isTransmissionLine(c.kind)
-            ? lineParameters(c).lengthDegrees * d.frequencyMHz / c.referenceMHz : 0;
-        const int steps = c.kind == Kind::Measured ? 1
+            ? lineParameters(c).lengthDegrees * frequencyMHz / c.referenceMHz : 0;
+        const int steps = d.simpleTrajectories && c.kind != Kind::Measured
+            ? 4
+            : c.kind == Kind::Measured ? 1
             : static_cast<int>(std::clamp(std::abs(angle) * 4, 256.0, 8192.0));
         path.reserve(static_cast<std::size_t>(steps + 1));
         for (int i = 0; i <= steps; ++i) {
-            const auto z = apply(input, c, d.frequencyMHz, static_cast<double>(i) / steps);
+            const auto z = apply(input, c, frequencyMHz, static_cast<double>(i) / steps);
             path.push_back(z.reflection(d.referenceOhms));
             updateQ(z);
         }
-        input = apply(input, c, d.frequencyMHz);
+        input = apply(input, c, frequencyMHz);
         result.nodes.push_back(input);
     }
     return result;
+}
+
+std::vector<double> simpleTrajectoryFrequencies(const Document& d)
+{
+    validate(d);
+    const auto range = measuredFrequencyRange(d);
+    const double factor = d.simpleTrajectorySpanPercent / 100;
+    const double lower = d.frequencyMHz * (1 - factor);
+    const double upper = d.frequencyMHz * (1 + factor);
+    std::vector<double> frequencies{
+        std::max(range.first, lower),
+        d.frequencyMHz,
+        std::min(range.second, upper)
+    };
+    if (frequencies.front() > frequencies[1])
+        frequencies.front() = frequencies[1];
+    if (frequencies.back() < frequencies[1])
+        frequencies.back() = frequencies[1];
+    std::sort(frequencies.begin(), frequencies.end());
+    frequencies.erase(std::unique(frequencies.begin(), frequencies.end()), frequencies.end());
+    return frequencies;
 }
 
 void tune(Component& c, double percent, bool increase)

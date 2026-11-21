@@ -313,6 +313,43 @@ private slots:
         }
     }
 
+    void simpleTrajectoryFrequenciesAndSnapshots()
+    {
+        rf::Document d;
+        d.frequencyMHz = 1000;
+        d.simpleTrajectorySpanPercent = 10;
+        d.simpleTrajectories = true;
+        d.components = {line(rf::Connection::ThroughLine, 45), rf::defaultComponent(rf::Kind::Capacitor, 1000, 50)};
+        d.selected = 0;
+
+        const auto frequencies = rf::simpleTrajectoryFrequencies(d);
+        QCOMPARE(frequencies.size(), std::size_t(3));
+        QCOMPARE(frequencies[0], 900.0);
+        QCOMPARE(frequencies[1], 1000.0);
+        QCOMPARE(frequencies[2], 1100.0);
+
+        for (const double frequency : frequencies) {
+            const auto snapshot = rf::evaluateAtFrequency(d, frequency);
+            QCOMPARE(snapshot.trajectories.size(), d.components.size());
+            for (std::size_t i = 0; i < snapshot.trajectories.size(); ++i) {
+                const auto& path = snapshot.trajectories[i];
+                QCOMPARE(path.size(), std::size_t(5));
+                QVERIFY(near(path.front(), snapshot.nodes[i].reflection(50)));
+                QVERIFY(near(path.back(), snapshot.nodes[i + 1].reflection(50)));
+                for (const auto gamma : path) {
+                    QVERIFY(std::isfinite(gamma.real()) && std::isfinite(gamma.imag()));
+                    QVERIFY(std::abs(gamma) <= 1 + 1e-10);
+                }
+            }
+        }
+
+        d.frequencyMHz = 1e12;
+        d.simpleTrajectorySpanPercent = 10;
+        const auto clamped = rf::simpleTrajectoryFrequencies(d);
+        QVERIFY(!clamped.empty());
+        QVERIFY(clamped.back() <= 1e12);
+    }
+
     void tuning()
     {
         auto c = rf::defaultComponent(rf::Kind::Resistor, 1000, 50);
@@ -374,6 +411,8 @@ private slots:
         d.magnitudeCeilingDb = 50;
         d.magnitudeFloorDb = -50;
         d.s11Trajectory = d.s22Trajectory = true;
+        d.simpleTrajectories = true;
+        d.simpleTrajectorySpanPercent = 17.5;
         d.trajectoryStartMHz = 200;
         d.trajectoryStopMHz = 3000;
         d.trajectoryPoints = 257;

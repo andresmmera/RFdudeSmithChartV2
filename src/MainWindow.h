@@ -84,5 +84,6 @@ private:
     QAction* stabilityUnstableShadeAction_ = nullptr;
     QAction* s11TrajectoryAction_ = nullptr;
     QAction* s22TrajectoryAction_ = nullptr;
+    QAction* simpleTrajectoriesAction_ = nullptr;
     std::vector<QAction*> displayActions_;
 };

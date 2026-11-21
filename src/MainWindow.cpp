@@ -239,6 +239,11 @@ void MainWindow::buildActions()
             change([](rf::Document& d) { d.s22Trajectory = !d.s22Trajectory; });
         });
     s22TrajectoryAction_->setCheckable(true);
+    simpleTrajectoriesAction_ = action(view, tr("Simple 3-frequency Smith-chart trajectories"), {},
+        "simpleTrajectories", [this] {
+            change([](rf::Document& d) { d.simpleTrajectories = !d.simpleTrajectories; });
+        });
+    simpleTrajectoriesAction_->setCheckable(true);
     stabilitySourceCircleAction_ = action(view, tr("Source stability circle"), {},
         "stabilitySourceCircle", [this] {
             change([](rf::Document& d) { d.stabilitySourceCircle = !d.stabilitySourceCircle; });
@@ -393,6 +398,7 @@ void MainWindow::refresh()
     for (std::size_t i = 0; i < flags.size(); ++i) displayActions_[i]->setChecked(flags[i]);
     s11TrajectoryAction_->setChecked(document_.s11Trajectory);
     s22TrajectoryAction_->setChecked(document_.s22Trajectory);
+    simpleTrajectoriesAction_->setChecked(document_.simpleTrajectories);
     stabilitySourceCircleAction_->setChecked(document_.stabilitySourceCircle);
     stabilityLoadCircleAction_->setChecked(document_.stabilityLoadCircle);
     stabilityUnstableShadeAction_->setChecked(document_.stabilityUnstableShade);

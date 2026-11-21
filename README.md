@@ -184,6 +184,11 @@ or runs remote builds.
   separate K/B1 versus magnitude axes and configurable amplitude ceiling/floor.
 - Optional independently configured S11 and S22 frequency trajectories on the
   Smith chart, with a separate linear/logarithmic sweep range and point count.
+- Optional simple 3-frequency Smith-chart mode. It draws low/current/high
+  component contours with five points (measured blocks retain their endpoint
+  pair) and matching S11/S22 points; the default span is ±10% of the current
+  frequency and may be configured from 0.1% to 100%;
+  detailed mode retains dense component and frequency-contour curves.
 - Touchstone 1.x `.s2p` circuit blocks and `.s1p` frequency-dependent loads,
   embedded in projects, with complex interpolation and real-reference conversion.
 - Touchstone 1.x `.s1p`/`.s2p` export from the frequency-response analysis sweep,

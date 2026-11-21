@@ -503,6 +503,18 @@ std::optional<rf::Document> editSettings(QWidget* parent, const rf::Document& or
     s22Trajectory->setObjectName("s22Trajectory");
     s22Trajectory->setChecked(original.s22Trajectory);
     form->addRow(s22Trajectory);
+    auto* simpleTrajectories = new QCheckBox("Use simple 3-frequency component/S-parameter trajectories");
+    simpleTrajectories->setObjectName("simpleTrajectories");
+    simpleTrajectories->setChecked(original.simpleTrajectories);
+    form->addRow(simpleTrajectories);
+    auto* simpleTrajectorySpan = new QDoubleSpinBox;
+    simpleTrajectorySpan->setObjectName("simpleTrajectorySpan");
+    simpleTrajectorySpan->setRange(0.1, 100);
+    simpleTrajectorySpan->setDecimals(1);
+    simpleTrajectorySpan->setSuffix(" %");
+    simpleTrajectorySpan->setValue(original.simpleTrajectorySpanPercent);
+    simpleTrajectorySpan->setKeyboardTracking(false);
+    form->addRow("Simple trajectory span", simpleTrajectorySpan);
     auto* trajectoryStart = addFrequencyRow(form, "Trajectory start", "trajectoryStart",
                                             original.trajectoryStartMHz);
     auto* trajectoryStop = addFrequencyRow(form, "Trajectory stop", "trajectoryStop",
@@ -536,13 +548,16 @@ std::optional<rf::Document> editSettings(QWidget* parent, const rf::Document& or
     form->addRow(referenceOverlay);
     const auto trajectoryState = [=] {
         const bool enabled = s11Trajectory->isChecked() || s22Trajectory->isChecked();
-        trajectoryStart->setEnabled(enabled);
-        trajectoryStop->setEnabled(enabled);
-        trajectoryPoints->setEnabled(enabled);
-        trajectoryLog->setEnabled(enabled);
+        const bool detailedSweep = enabled && !simpleTrajectories->isChecked();
+        trajectoryStart->setEnabled(detailedSweep);
+        trajectoryStop->setEnabled(detailedSweep);
+        trajectoryPoints->setEnabled(detailedSweep);
+        trajectoryLog->setEnabled(detailedSweep);
+        simpleTrajectorySpan->setEnabled(simpleTrajectories->isChecked());
     };
     QObject::connect(s11Trajectory, &QCheckBox::toggled, &dialog, trajectoryState);
     QObject::connect(s22Trajectory, &QCheckBox::toggled, &dialog, trajectoryState);
+    QObject::connect(simpleTrajectories, &QCheckBox::toggled, &dialog, trajectoryState);
     trajectoryState();
     auto* box = buttons(dialog, layout);
     auto result = original;
@@ -560,6 +575,8 @@ std::optional<rf::Document> editSettings(QWidget* parent, const rf::Document& or
         result.stabilityB1 = stabilityB1->isChecked();
         result.s11Trajectory = s11Trajectory->isChecked();
         result.s22Trajectory = s22Trajectory->isChecked();
+        result.simpleTrajectories = simpleTrajectories->isChecked();
+        result.simpleTrajectorySpanPercent = simpleTrajectorySpan->value();
         result.trajectoryStartMHz = trajectoryStart->value();
         result.trajectoryStopMHz = trajectoryStop->value();
         result.trajectoryPoints = trajectoryPoints->value();

@@ -52,6 +52,8 @@ void SmithChartWidget::setNetwork(const rf::Document& d, const rf::Evaluation& e
     s22FrequencyMHz_.clear();
     referenceS11_.clear();
     referenceS22_.clear();
+    simpleComponentFrequencyMHz_.clear();
+    simpleComponentTrajectories_.clear();
     trajectoryStartMHz_ = document_.trajectoryStartMHz;
     trajectoryStopMHz_ = document_.trajectoryStopMHz;
     trajectoryPoints_ = document_.trajectoryPoints;
@@ -86,7 +88,39 @@ void SmithChartWidget::setNetwork(const rf::Document& d, const rf::Evaluation& e
             }
         }
     }
-    if (document_.s11Trajectory || document_.s22Trajectory) {
+    if (document_.simpleTrajectories) {
+        try {
+            simpleComponentFrequencyMHz_ = rf::simpleTrajectoryFrequencies(document_);
+            simpleComponentTrajectories_.resize(document_.components.size());
+            for (const double frequency : simpleComponentFrequencyMHz_) {
+                const auto snapshot = rf::evaluateAtFrequency(document_, frequency);
+                for (std::size_t i = 0; i < snapshot.trajectories.size(); ++i)
+                    simpleComponentTrajectories_[i].push_back(snapshot.trajectories[i]);
+            }
+            if (document_.s11Trajectory || document_.s22Trajectory) {
+                for (const double frequency : simpleComponentFrequencyMHz_) {
+                    const auto s = rf::sParameters(document_.components,
+                                                   frequency,
+                                                   document_.referenceOhms);
+                    if (document_.s11Trajectory) {
+                        s11Trajectory_.push_back(s.s11);
+                        s11FrequencyMHz_.push_back(frequency);
+                    }
+                    if (document_.s22Trajectory) {
+                        s22Trajectory_.push_back(s.s22);
+                        s22FrequencyMHz_.push_back(frequency);
+                    }
+                }
+            }
+        } catch (const std::exception&) {
+            s11Trajectory_.clear();
+            s22Trajectory_.clear();
+            s11FrequencyMHz_.clear();
+            s22FrequencyMHz_.clear();
+            simpleComponentFrequencyMHz_.clear();
+            simpleComponentTrajectories_.clear();
+        }
+    } else if (document_.s11Trajectory || document_.s22Trajectory) {
         rf::Sweep sweep;
         sweep.startMHz = document_.trajectoryStartMHz;
         sweep.stopMHz = document_.trajectoryStopMHz;
@@ -194,16 +228,41 @@ void SmithChartWidget::paintEvent(QPaintEvent*)
         const double cr = r * std::abs(evaluation_.nodes.back().reflection(document_.referenceOhms));
         p.drawEllipse(center, cr, cr);
     }
-    for (std::size_t i = 0; i < evaluation_.trajectories.size(); ++i) {
-        const auto& samples = evaluation_.trajectories[i];
-        if (samples.empty()) continue;
-        QPainterPath path;
-        path.moveTo(pointForReflection(samples.front()));
-        for (const auto gamma : samples) path.lineTo(pointForReflection(gamma));
-        const bool selected = static_cast<int>(i) == document_.selected;
-        p.setPen(QPen(selected ? QColor("#1f59b6") : QColor("#303030"), selected ? 3 : 1.8,
-                      document_.components[i].kind == rf::Kind::Measured ? Qt::DashLine : Qt::SolidLine));
-        p.drawPath(path);
+    if (document_.simpleTrajectories) {
+        for (std::size_t i = 0; i < simpleComponentTrajectories_.size(); ++i) {
+            const bool selected = static_cast<int>(i) == document_.selected;
+            for (std::size_t j = 0; j < simpleComponentTrajectories_[i].size(); ++j) {
+                const auto& samples = simpleComponentTrajectories_[i][j];
+                if (samples.empty()) continue;
+                QPainterPath path;
+                path.moveTo(pointForReflection(samples.front()));
+                for (const auto gamma : samples) path.lineTo(pointForReflection(gamma));
+                const double frequency = j < simpleComponentFrequencyMHz_.size()
+                    ? simpleComponentFrequencyMHz_[j] : document_.frequencyMHz;
+                const bool current = std::abs(frequency - document_.frequencyMHz) < 1e-9;
+                Qt::PenStyle style = current ? Qt::SolidLine
+                                             : frequency < document_.frequencyMHz
+                                                ? Qt::DashLine : Qt::DotLine;
+                p.setPen(QPen(selected ? QColor("#1f59b6") : QColor("#303030"),
+                              current && selected ? 3 : 1.6, style));
+                p.drawPath(path);
+                p.setBrush(selected ? QColor("#1f59b6") : QColor("#303030"));
+                p.drawEllipse(pointForReflection(samples.front()), 2.5, 2.5);
+                p.drawEllipse(pointForReflection(samples.back()), 2.5, 2.5);
+            }
+        }
+    } else {
+        for (std::size_t i = 0; i < evaluation_.trajectories.size(); ++i) {
+            const auto& samples = evaluation_.trajectories[i];
+            if (samples.empty()) continue;
+            QPainterPath path;
+            path.moveTo(pointForReflection(samples.front()));
+            for (const auto gamma : samples) path.lineTo(pointForReflection(gamma));
+            const bool selected = static_cast<int>(i) == document_.selected;
+            p.setPen(QPen(selected ? QColor("#1f59b6") : QColor("#303030"), selected ? 3 : 1.8,
+                          document_.components[i].kind == rf::Kind::Measured ? Qt::DashLine : Qt::SolidLine));
+            p.drawPath(path);
+        }
     }
     if (!s11Trajectory_.empty()) {
         QPainterPath path;
@@ -366,6 +425,24 @@ void SmithChartWidget::paintEvent(QPaintEvent*)
             p.setPen(QColor("#606060"));
             p.drawText(QPointF(center.x() - r + referenceLegendOffset + 30, center.y() - r - 38),
                        tr("Reference S22"));
+        }
+    }
+    if (document_.simpleTrajectories && !simpleComponentFrequencyMHz_.empty()) {
+        const double legendY = center.y() + r + 28;
+        double legendX = center.x() - r;
+        for (std::size_t i = 0; i < simpleComponentFrequencyMHz_.size(); ++i) {
+            const double frequency = simpleComponentFrequencyMHz_[i];
+            const bool current = std::abs(frequency - document_.frequencyMHz) < 1e-9;
+            const Qt::PenStyle style = current ? Qt::SolidLine
+                                               : frequency < document_.frequencyMHz
+                                                    ? Qt::DashLine : Qt::DotLine;
+            p.setPen(QPen(QColor("#303030"), 1.6, style));
+            p.drawLine(QPointF(legendX, legendY),
+                       QPointF(legendX + 20, legendY));
+            p.setPen(QColor("#606060"));
+            p.drawText(QPointF(legendX + 26, legendY + 4),
+                       tr("%1 MHz").arg(numeric(frequency)));
+            legendX += 115;
         }
     }
     for (std::size_t i = 0; i < evaluation_.nodes.size(); ++i) {

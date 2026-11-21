@@ -106,6 +106,8 @@ struct Document
     double magnitudeFloorDb = -100;
     bool s11Trajectory = false;
     bool s22Trajectory = false;
+    bool simpleTrajectories = false;
+    double simpleTrajectorySpanPercent = 10;
     double trajectoryStartMHz = 100;
     double trajectoryStopMHz = 2000;
     int trajectoryPoints = 401;
@@ -151,6 +153,8 @@ Component defaultComponent(Kind kind, double frequencyMHz, double referenceOhms)
 Impedance apply(const Impedance& input, const Component& component, double frequencyMHz,
                 double fraction = 1);
 Evaluation evaluate(const Document& document);
+Evaluation evaluateAtFrequency(const Document& document, double frequencyMHz);
+std::vector<double> simpleTrajectoryFrequencies(const Document& document);
 void tune(Component& component, double percent, bool increase);
 std::string kindName(Kind kind);
 std::string connectionName(Connection connection);

@@ -1519,6 +1519,8 @@ private slots:
             dialog->findChild<QCheckBox*>("stabilityGmax")->setChecked(true);
             dialog->findChild<QCheckBox*>("s11Trajectory")->setChecked(true);
             dialog->findChild<QCheckBox*>("s22Trajectory")->setChecked(true);
+            dialog->findChild<QCheckBox*>("simpleTrajectories")->setChecked(true);
+            dialog->findChild<QDoubleSpinBox*>("simpleTrajectorySpan")->setValue(12.5);
             dialog->findChild<QDoubleSpinBox*>("trajectoryStart")->setValue(100);
             dialog->findChild<QDoubleSpinBox*>("trajectoryStop")->setValue(3000);
             dialog->findChild<QSpinBox*>("trajectoryPoints")->setValue(257);
@@ -1531,12 +1533,16 @@ private slots:
         QVERIFY(window.document().stabilityGmax);
         QVERIFY(window.document().s11Trajectory);
         QVERIFY(window.document().s22Trajectory);
+        QVERIFY(window.document().simpleTrajectories);
+        QCOMPARE(window.document().simpleTrajectorySpanPercent, 12.5);
         QCOMPARE(window.document().trajectoryStartMHz, 100.0);
         QCOMPARE(window.document().trajectoryStopMHz, 3000.0);
         QCOMPARE(window.document().trajectoryPoints, 257);
         QVERIFY(window.document().trajectoryLogarithmic);
         action(window, "preset1")->trigger();
         QCOMPARE(window.document().frequencyMHz, 433.0);
+        action(window, "simpleTrajectories")->trigger();
+        QVERIFY(!window.document().simpleTrajectories);
     }
 
     void failedIoPreservesNetwork()
