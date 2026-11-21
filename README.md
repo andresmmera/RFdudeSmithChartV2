@@ -180,8 +180,18 @@ or runs remote builds.
   component previews and undoable network replacement.
 - Two-port S11/S21/S22 magnitude response, linear/log frequency sweeps, a linked
   analysis-frequency marker, and separate frequency-response PNG export.
+- Optional Gmax/MSG, K, and B1 stability traces on the frequency response, with
+  separate K/B1 versus magnitude axes and configurable amplitude ceiling/floor.
+- Optional independently configured S11 and S22 frequency trajectories on the
+  Smith chart, with a separate linear/logarithmic sweep range and point count.
 - Touchstone 1.x `.s2p` circuit blocks and `.s1p` frequency-dependent loads,
   embedded in projects, with complex interpolation and real-reference conversion.
+- Touchstone 1.x `.s1p`/`.s2p` export from the frequency-response analysis sweep,
+  in either terminated-S11 or full two-port mode.
+- Optional source/load stability circles and unstable-region shading at the
+  Smith-chart analysis frequency.
+- Optional read-only `.s1p`/`.s2p` reference overlay on the Smith chart, with
+  embedded project persistence and active-chart Z0 renormalization.
 
 ### Keyboard and mouse
 

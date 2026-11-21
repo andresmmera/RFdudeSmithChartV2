@@ -11,6 +11,8 @@ class SmithChartWidget final : public QWidget
 public:
     explicit SmithChartWidget(QWidget* parent = nullptr);
     void setNetwork(const rf::Document& document, const rf::Evaluation& evaluation);
+    const std::vector<rf::Complex>& s11Trajectory() const { return s11Trajectory_; }
+    const std::vector<rf::Complex>& s22Trajectory() const { return s22Trajectory_; }
     QPointF pointForReflection(rf::Complex gamma) const;
     rf::Complex reflectionAt(QPointF point) const;
 
@@ -32,6 +34,16 @@ private:
     double radius() const;
     rf::Document document_;
     rf::Evaluation evaluation_;
+    std::vector<rf::Complex> s11Trajectory_;
+    std::vector<rf::Complex> s22Trajectory_;
+    std::vector<double> s11FrequencyMHz_;
+    std::vector<double> s22FrequencyMHz_;
+    std::vector<rf::Complex> referenceS11_;
+    std::vector<rf::Complex> referenceS22_;
+    double trajectoryStartMHz_ = 100;
+    double trajectoryStopMHz_ = 2000;
+    int trajectoryPoints_ = 401;
+    bool trajectoryLogarithmic_ = false;
     int wheelRemainder_ = 0;
 };
 

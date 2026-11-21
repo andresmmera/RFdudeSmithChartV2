@@ -95,9 +95,26 @@ struct Document
     bool qCurves = false;
     bool markers = true;
     bool vswrCircle = false;
+    bool stabilitySourceCircle = false;
+    bool stabilityLoadCircle = false;
+    bool stabilityUnstableShade = false;
+    bool stabilityGmax = false;
+    bool stabilityK = false;
+    bool stabilityB1 = false;
+    bool magnitudeAutoScale = true;
+    double magnitudeCeilingDb = 0;
+    double magnitudeFloorDb = -100;
+    bool s11Trajectory = false;
+    bool s22Trajectory = false;
+    double trajectoryStartMHz = 100;
+    double trajectoryStopMHz = 2000;
+    int trajectoryPoints = 401;
+    bool trajectoryLogarithmic = false;
     int selected = -1;
     std::vector<Component> components;
     std::optional<TouchstoneData> measuredLoad;
+    std::optional<TouchstoneData> referenceOverlay;
+    bool referenceOverlayVisible = false;
     bool operator==(const Document&) const = default;
 };
 

@@ -3,26 +3,40 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QKeyEvent>
+#include <QWheelEvent>
 
 #include <algorithm>
 #include <cmath>
 
 namespace {
-constexpr double floorDb = -100;
 double db(rf::Complex value)
 {
     const double magnitude = std::abs(value);
-    return magnitude == 0 ? floorDb : std::max(floorDb, 20 * std::log10(magnitude));
+    return magnitude == 0 ? -300 : 20 * std::log10(magnitude);
+}
+
+double coarseCeilingDb(double maximum)
+{
+    if (!std::isfinite(maximum)) return 0;
+    if (maximum <= 0) return 0;
+    if (maximum <= 10) return 10;
+    if (maximum <= 20) return 20;
+    if (maximum <= 50) return 50;
+    if (maximum <= 100) return 100;
+    return std::ceil(maximum / 100) * 100;
 }
 }
 
 ResponsePlotWidget::ResponsePlotWidget(QWidget* parent) : QWidget(parent)
 {
     setObjectName("responsePlot");
-    setAccessibleName(tr("S parameter magnitude versus frequency"));
+    setAccessibleName(tr("S parameter magnitude and stability versus frequency"));
     setMinimumSize(520, 300);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    setToolTip(tr("Click the plot to set the analysis frequency. Values below -100 dB are clipped."));
+    setFocusPolicy(Qt::StrongFocus);
+    setToolTip(tr("Click the plot to set the analysis frequency. "
+                  "Up/Down or wheel while focused changes frequency."));
 }
 
 void ResponsePlotWidget::setResponse(const rf::Sweep& sweep, std::vector<rf::ResponseSample> samples, bool onePort)
@@ -30,13 +44,61 @@ void ResponsePlotWidget::setResponse(const rf::Sweep& sweep, std::vector<rf::Res
     sweep_ = sweep;
     samples_ = std::move(samples);
     onePort_ = onePort;
-    ceilingDb_ = 0;
+    double maximum = -300;
     for (const auto& sample : samples_) {
-        ceilingDb_ = std::max(ceilingDb_, db(sample.s.s11));
-        if (!onePort_) ceilingDb_ = std::max({ceilingDb_, db(sample.s.s21), db(sample.s.s22)});
+        maximum = std::max(maximum, db(sample.s.s11));
+        if (!onePort_) maximum = std::max({maximum, db(sample.s.s21), db(sample.s.s22)});
+        if (!onePort_ && showGmax_) {
+            const auto metrics = rf::stabilityMetrics(sample.s);
+            if (showGmax_ && metrics.gmaxDefined)
+                maximum = std::max(maximum, metrics.gmaxDb);
+            if (showGmax_ && metrics.msgDefined)
+                maximum = std::max(maximum, metrics.msgDb);
+        }
     }
-    ceilingDb_ = std::ceil(ceilingDb_ / 20) * 20;
+    if (magnitudeAutoScale_)
+        ceilingDb_ = coarseCeilingDb(maximum);
+    else
+        ceilingDb_ = std::max(magnitudeCeilingDb_, floorDb_ + 1);
+
+    stabilityMinimum_ = -1;
+    stabilityMaximum_ = 5;
+    if (!onePort_) {
+        for (const auto& sample : samples_) {
+            const auto metrics = rf::stabilityMetrics(sample.s);
+            if (showK_ && metrics.kDefined)
+                stabilityMinimum_ = std::min(stabilityMinimum_, metrics.k);
+            if (showB1_)
+                stabilityMinimum_ = std::min(stabilityMinimum_, metrics.b1);
+            if (showK_ && metrics.kDefined)
+                stabilityMaximum_ = std::max(stabilityMaximum_, metrics.k);
+            if (showB1_)
+                stabilityMaximum_ = std::max(stabilityMaximum_, metrics.b1);
+        }
+        if (!std::isfinite(stabilityMinimum_)) stabilityMinimum_ = -1;
+        if (!std::isfinite(stabilityMaximum_) || stabilityMaximum_ < 5)
+            stabilityMaximum_ = 5;
+        if (stabilityMaximum_ <= 10) stabilityMaximum_ = std::ceil(stabilityMaximum_);
+        else if (stabilityMaximum_ <= 100) stabilityMaximum_ = std::ceil(stabilityMaximum_ / 10) * 10;
+        else stabilityMaximum_ = std::ceil(stabilityMaximum_ / 100) * 100;
+    }
     update();
+}
+
+void ResponsePlotWidget::setStabilityTraces(bool gmax, bool k, bool b1)
+{
+    showGmax_ = gmax;
+    showK_ = k;
+    showB1_ = b1;
+    setResponse(sweep_, samples_, onePort_);
+}
+
+void ResponsePlotWidget::setMagnitudeScale(bool automatic, double ceilingDb, double floorDb)
+{
+    magnitudeAutoScale_ = automatic;
+    magnitudeCeilingDb_ = std::max(0.0, ceilingDb);
+    floorDb_ = automatic ? -100.0 : std::clamp(floorDb, -300.0, 0.0);
+    setResponse(sweep_, samples_, onePort_);
 }
 
 void ResponsePlotWidget::setMarker(double frequencyMHz)
@@ -68,8 +130,20 @@ double ResponsePlotWidget::fraction(double frequencyMHz) const
 QPointF ResponsePlotWidget::pointForSample(double frequencyMHz, double decibels) const
 {
     const auto rect = plotRect();
+    const double clipped = std::clamp(decibels, floorDb_, ceilingDb_);
+    const double denominator = ceilingDb_ - floorDb_;
     return {rect.left() + fraction(frequencyMHz) * rect.width(),
-            rect.top() + std::clamp((ceilingDb_ - decibels) / (ceilingDb_ - floorDb), 0.0, 1.0) * rect.height()};
+            rect.top() + std::clamp((ceilingDb_ - clipped) / std::max(denominator, 1.0),
+                                    0.0, 1.0) * rect.height()};
+}
+
+QPointF ResponsePlotWidget::pointForStability(double frequencyMHz, double value) const
+{
+    const auto rect = plotRect();
+    const double fractionValue =
+        std::clamp((value - stabilityMinimum_) / (stabilityMaximum_ - stabilityMinimum_), 0.0, 1.0);
+    return {rect.left() + fraction(frequencyMHz) * rect.width(),
+            rect.top() + (1.0 - fractionValue) * rect.height()};
 }
 
 void ResponsePlotWidget::paintEvent(QPaintEvent*)
@@ -80,22 +154,51 @@ void ResponsePlotWidget::paintEvent(QPaintEvent*)
     const auto area = plotRect();
     const std::array<QColor, 3> colors{QColor(190, 45, 40), QColor(30, 95, 200), QColor(15, 120, 65)};
     const std::array<QString, 3> names{"S11", "S21", "S22"};
+    int legendIndex = onePort_ ? 1 : 3;
     for (int i = 0; i < (onePort_ ? 1 : 3); ++i) {
         painter.setPen(QPen(colors[i], 2, i == 2 ? Qt::DashLine : Qt::SolidLine));
         const int x = 70 + i * 95;
         painter.drawLine(x, 20, x + 24, 20);
         painter.drawText(x + 30, 25, names[i]);
     }
+    const std::array<std::pair<bool, QColor>, 3> stabilityLegend{
+        std::pair{showGmax_, QColor("#8a3fb4")},
+        std::pair{showK_, QColor("#d06b18")},
+        std::pair{showB1_, QColor("#008b8b")}
+    };
+    const std::array<QString, 3> stabilityNames{"Gmax/MSG", "K", "B1"};
+    for (int i = 0; i < 3; ++i) {
+        if (!stabilityLegend[static_cast<std::size_t>(i)].first || onePort_) continue;
+        const int x = 70 + legendIndex * 95;
+        painter.setPen(QPen(stabilityLegend[static_cast<std::size_t>(i)].second, 2,
+                            i == 0 ? Qt::SolidLine : Qt::DashLine));
+        painter.drawLine(x, 20, x + 24, 20);
+        painter.drawText(x + 30, 25, stabilityNames[i]);
+        ++legendIndex;
+    }
     painter.setPen(Qt::black);
     painter.drawText(QRectF(area.right() - 190, 8, 190, 24), Qt::AlignRight,
-                     tr("Magnitude (dB), floor -100"));
+                     tr("Magnitude (dB), floor %1").arg(floorDb_, 0, 'g', 5));
+    if (showK_ || showB1_) {
+        painter.drawText(QRectF(area.right() - 230, 8, 230, 24), Qt::AlignRight,
+                         tr("Right axis: stability"));
+    }
     for (int i = 0; i <= 5; ++i) {
         const double y = area.top() + i * area.height() / 5;
         painter.setPen(QColor(220, 220, 220));
         painter.drawLine(QPointF(area.left(), y), QPointF(area.right(), y));
         painter.setPen(Qt::black);
         painter.drawText(QRectF(2, y - 10, 52, 20), Qt::AlignRight | Qt::AlignVCenter,
-                         QString::number(std::lerp(ceilingDb_, floorDb, i / 5.0), 'g', 4));
+                         QString::number(std::lerp(ceilingDb_, floorDb_, i / 5.0), 'g', 4));
+        if (showK_ || showB1_) {
+            if (!onePort_) {
+                painter.setPen(Qt::black);
+                painter.drawText(QRectF(area.right() + 6, y - 10, 68, 20),
+                                 Qt::AlignLeft | Qt::AlignVCenter,
+                                 QString::number(std::lerp(stabilityMaximum_, stabilityMinimum_,
+                                                           i / 5.0), 'g', 4));
+            }
+        }
         const double x = area.left() + i * area.width() / 5;
         painter.setPen(QColor(220, 220, 220));
         painter.drawLine(QPointF(x, area.top()), QPointF(x, area.bottom()));
@@ -134,6 +237,66 @@ void ResponsePlotWidget::paintEvent(QPaintEvent*)
             painter.drawEllipse(pointForSample(samples_.front().frequencyMHz, db(value)), 3, 3);
         }
     }
+    if (!onePort_) {
+        if (showGmax_) {
+            QPainterPath gmaxPath;
+            QPainterPath msgPath;
+            bool gmaxFirst = true;
+            bool msgFirst = true;
+            for (const auto& sample : samples_) {
+                const auto metrics = rf::stabilityMetrics(sample.s);
+                if (metrics.gmaxDefined) {
+                    const auto point = pointForSample(sample.frequencyMHz, metrics.gmaxDb);
+                    if (gmaxFirst) gmaxPath.moveTo(point);
+                    else gmaxPath.lineTo(point);
+                    gmaxFirst = false;
+                }
+                if (metrics.msgDefined) {
+                    const auto point = pointForSample(sample.frequencyMHz, metrics.msgDb);
+                    if (msgFirst) msgPath.moveTo(point);
+                    else msgPath.lineTo(point);
+                    msgFirst = false;
+                }
+            }
+            painter.setPen(QPen(QColor("#8a3fb4"), 2));
+            painter.drawPath(gmaxPath);
+            painter.setPen(QPen(QColor("#8a3fb4"), 2, Qt::DotLine));
+            painter.drawPath(msgPath);
+        }
+        if (showK_) {
+            QPainterPath path;
+            bool first = true;
+            for (const auto& sample : samples_) {
+                const auto metrics = rf::stabilityMetrics(sample.s);
+                if (!metrics.kDefined) continue;
+                const auto point = pointForStability(sample.frequencyMHz, metrics.k);
+                if (first) path.moveTo(point);
+                else path.lineTo(point);
+                first = false;
+            }
+            painter.setPen(QPen(QColor("#d06b18"), 1.8, Qt::DashLine));
+            painter.drawPath(path);
+            painter.setPen(QPen(QColor("#d06b18"), 1, Qt::DotLine));
+            painter.drawLine(area.left(), pointForStability(sweep_.startMHz, 1).y(),
+                             area.right(), pointForStability(sweep_.stopMHz, 1).y());
+        }
+        if (showB1_) {
+            QPainterPath path;
+            bool first = true;
+            for (const auto& sample : samples_) {
+                const auto metrics = rf::stabilityMetrics(sample.s);
+                const auto point = pointForStability(sample.frequencyMHz, metrics.b1);
+                if (first) path.moveTo(point);
+                else path.lineTo(point);
+                first = false;
+            }
+            painter.setPen(QPen(QColor("#008b8b"), 1.8, Qt::DashLine));
+            painter.drawPath(path);
+            painter.setPen(QPen(QColor("#008b8b"), 1, Qt::DotLine));
+            painter.drawLine(area.left(), pointForStability(sweep_.startMHz, 0).y(),
+                             area.right(), pointForStability(sweep_.stopMHz, 0).y());
+        }
+    }
     if (markerVisible_ && markerMHz_ >= sweep_.startMHz && markerMHz_ <= sweep_.stopMHz) {
         const double x = pointForSample(markerMHz_, 0).x();
         painter.setPen(QPen(Qt::black, 1, Qt::DashLine));
@@ -146,6 +309,7 @@ void ResponsePlotWidget::mousePressEvent(QMouseEvent* event)
 {
     if (event->button() == Qt::LeftButton && !samples_.empty()
         && plotRect().contains(event->position())) {
+        setFocus(Qt::MouseFocusReason);
         const double position = (event->position().x() - plotRect().left()) / plotRect().width();
         const double frequency = sweep_.logarithmic
             ? std::exp(std::lerp(std::log(sweep_.startMHz), std::log(sweep_.stopMHz), position))
@@ -154,5 +318,35 @@ void ResponsePlotWidget::mousePressEvent(QMouseEvent* event)
         event->accept();
     } else {
         QWidget::mousePressEvent(event);
+    }
+}
+
+void ResponsePlotWidget::wheelEvent(QWheelEvent* event)
+{
+    wheelRemainder_ += event->angleDelta().y();
+    while (std::abs(wheelRemainder_) >= 120) {
+        const int direction = wheelRemainder_ > 0 ? 1 : -1;
+        wheelRemainder_ -= direction * 120;
+        emit frequencyTuneRequested(direction);
+    }
+    event->accept();
+}
+
+void ResponsePlotWidget::keyPressEvent(QKeyEvent* event)
+{
+    switch (event->key()) {
+    case Qt::Key_Up:
+    case Qt::Key_Right:
+        emit frequencyTuneRequested(1);
+        event->accept();
+        break;
+    case Qt::Key_Down:
+    case Qt::Key_Left:
+        emit frequencyTuneRequested(-1);
+        event->accept();
+        break;
+    default:
+        QWidget::keyPressEvent(event);
+        break;
     }
 }

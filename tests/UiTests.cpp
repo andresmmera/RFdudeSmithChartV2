@@ -28,6 +28,7 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QScopeGuard>
+#include <QCheckBox>
 #include <QPlainTextEdit>
 #include <QSpinBox>
 #include <QSplitter>
@@ -177,6 +178,21 @@ private slots:
         QVERIFY(QFile::remove(onePort));
         QVERIFY(window.openDocument(project));
         QCOMPARE(window.document(), before);
+        const auto overlay = directory.filePath("reference.s2p");
+        {
+            QFile file(overlay);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            QVERIFY(file.write("# MHz S RI R 50\n500 0.1 0 0.8 0 0.7 0 0.2 0\n"
+                               "1500 0.2 0 0.9 0 0.6 0 0.1 0\n") > 0);
+        }
+        QVERIFY(window.importReferenceOverlay(overlay));
+        QVERIFY(window.document().referenceOverlay.has_value());
+        QVERIFY(window.document().referenceOverlayVisible);
+        QCOMPARE(window.document().components, before.components);
+        QVERIFY(action(window, "referenceOverlay")->isChecked());
+        action(window, "clearReferenceOverlay")->trigger();
+        QVERIFY(!window.document().referenceOverlay);
+        QVERIFY(!window.document().referenceOverlayVisible);
         // Both numerical data and schematic render survive removal of original files.
         report = window.chartImage();
         QVERIFY(!report.isNull());
@@ -300,6 +316,20 @@ private slots:
         mode->setCurrentIndex(0);           // the checks below use the two-port view
         QCOMPARE(plot->samples().size(), std::size_t(401));
         QVERIFY(!window.isModified());
+        dialog->findChild<QCheckBox*>("stabilityGmax")->setChecked(true);
+        dialog->findChild<QCheckBox*>("stabilityK")->setChecked(true);
+        dialog->findChild<QCheckBox*>("stabilityB1")->setChecked(true);
+        dialog->findChild<QCheckBox*>("magnitudeAutoScale")->setChecked(false);
+        dialog->findChild<QComboBox*>("magnitudeCeiling")->setCurrentIndex(
+            dialog->findChild<QComboBox*>("magnitudeCeiling")->findData(50));
+        dialog->findChild<QComboBox*>("magnitudeFloor")->setCurrentIndex(
+            dialog->findChild<QComboBox*>("magnitudeFloor")->findData(-50));
+        QVERIFY(window.document().stabilityGmax);
+        QVERIFY(window.document().stabilityK);
+        QVERIFY(window.document().stabilityB1);
+        QVERIFY(!window.document().magnitudeAutoScale);
+        QCOMPARE(window.document().magnitudeCeilingDb, 50.0);
+        QCOMPARE(window.document().magnitudeFloorDb, -50.0);
         dialog->findChild<QDoubleSpinBox*>("sweepStart")->setValue(100);
         dialog->findChild<QDoubleSpinBox*>("sweepStop")->setValue(4000);
         dialog->findChild<QDoubleSpinBox*>("sweepPorts")->setValue(75);
@@ -310,7 +340,6 @@ private slots:
         QCOMPARE(plot->samples().back().frequencyMHz, 4000.0);
         const auto expected = rf::sParameters(document.components, plot->samples()[40].frequencyMHz, 75);
         QCOMPARE(plot->samples()[40].s.s21, expected.s21);
-        QVERIFY(!window.isModified());
         const auto beforeImage = dialog->responseImage();
         QVERIFY(!beforeImage.isNull());
         QCOMPARE(beforeImage.width(), 940);
@@ -324,6 +353,14 @@ private slots:
         QTest::mouseClick(plot, Qt::LeftButton, Qt::NoModifier, point);
         QVERIFY(std::abs(window.document().frequencyMHz - 2000) < 20);
         QVERIFY(window.isModified());
+        const double clickedFrequency = window.document().frequencyMHz;
+        QVERIFY(plot->hasFocus());
+        QTest::qWait(10);
+        QTest::keyClick(plot, Qt::Key_Up);
+        QTest::qWait(10);
+        QVERIFY(window.document().frequencyMHz > clickedFrequency);
+        action(window, "undo")->trigger();
+        QCOMPARE(window.document().frequencyMHz, clickedFrequency);
         auto changed = window.document();
         changed.frequencyMHz = before.frequencyMHz;
         QVERIFY(changed == before);
@@ -332,7 +369,6 @@ private slots:
         QVERIFY(dialog->responseImage() != beforeImage);
         action(window, "undo")->trigger();
         QVERIFY(window.document() == before);
-        QVERIFY(!window.isModified());
         QCOMPARE(dialog->responseImage(), beforeImage);
         action(window, "redo")->trigger();
         QVERIFY(window.isModified());
@@ -341,6 +377,22 @@ private slots:
         const auto png = directory.filePath("response.png");
         QVERIFY(beforeImage.save(png, "PNG"));
         QCOMPARE(QImage(png).convertToFormat(beforeImage.format()), beforeImage);
+        QTimer::singleShot(0, &window, [&] {
+            auto* fileDialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+            if (!fileDialog) qFatal("Expected Touchstone export dialog.");
+            fileDialog->selectFile(directory.filePath("network-response.s2p"));
+            static_cast<QDialog*>(fileDialog)->accept();
+        });
+        dialog->findChild<QPushButton*>("exportTouchstone")->click();
+        const auto exported = directory.filePath("network-response.s2p");
+        QFile exportedFile(exported);
+        QVERIFY(exportedFile.open(QIODevice::ReadOnly));
+        const auto text = exportedFile.readAll();
+        const auto parsed = rf::parseTouchstone(
+            std::string_view(text.constData(), static_cast<std::size_t>(text.size())),
+            2, "network-response.s2p");
+        QCOMPARE(parsed.referenceOhms, 75.0);
+        QCOMPARE(parsed.samples.size(), std::size_t(101));
         const auto screenshot = qEnvironmentVariable("RFDUDE_RESPONSE_SCREENSHOT");
         if (!screenshot.isEmpty()) {
             QVERIFY(dialog->responseImage().save(screenshot, "PNG"));
@@ -363,6 +415,12 @@ private slots:
         document.startOhms = {15, 40};
         document.goalOhms = {500, -80};
         document.referenceOhms = 93;
+        document.stabilityGmax = window.document().stabilityGmax;
+        document.stabilityK = window.document().stabilityK;
+        document.stabilityB1 = window.document().stabilityB1;
+        document.magnitudeAutoScale = window.document().magnitudeAutoScale;
+        document.magnitudeCeilingDb = window.document().magnitudeCeilingDb;
+        document.magnitudeFloorDb = window.document().magnitudeFloorDb;
         documents::save(path, document);
         QVERIFY(window.openDocument(path));
         QCOMPARE(dialog->responseImage(), beforeImage);
@@ -1458,11 +1516,25 @@ private slots:
             dialog->findChild<QDoubleSpinBox*>("frequency")->setValue(915);
             dialog->findChild<QDoubleSpinBox*>("preset1")->setValue(433);
             dialog->findChild<QDoubleSpinBox*>("startX")->setValue(-25);
+            dialog->findChild<QCheckBox*>("stabilityGmax")->setChecked(true);
+            dialog->findChild<QCheckBox*>("s11Trajectory")->setChecked(true);
+            dialog->findChild<QCheckBox*>("s22Trajectory")->setChecked(true);
+            dialog->findChild<QDoubleSpinBox*>("trajectoryStart")->setValue(100);
+            dialog->findChild<QDoubleSpinBox*>("trajectoryStop")->setValue(3000);
+            dialog->findChild<QSpinBox*>("trajectoryPoints")->setValue(257);
+            dialog->findChild<QCheckBox*>("trajectoryLogarithmic")->setChecked(true);
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
         });
         action(window, "setup")->trigger();
         QCOMPARE(window.document().frequencyMHz, 915.0);
         QCOMPARE(window.document().startOhms.imag(), -25.0);
+        QVERIFY(window.document().stabilityGmax);
+        QVERIFY(window.document().s11Trajectory);
+        QVERIFY(window.document().s22Trajectory);
+        QCOMPARE(window.document().trajectoryStartMHz, 100.0);
+        QCOMPARE(window.document().trajectoryStopMHz, 3000.0);
+        QCOMPARE(window.document().trajectoryPoints, 257);
+        QVERIFY(window.document().trajectoryLogarithmic);
         action(window, "preset1")->trigger();
         QCOMPARE(window.document().frequencyMHz, 433.0);
     }

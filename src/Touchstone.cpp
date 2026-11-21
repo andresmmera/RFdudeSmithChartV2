@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <iomanip>
 #include <locale>
 #include <numbers>
 #include <sstream>
@@ -153,6 +154,47 @@ TouchstoneData parseTouchstone(std::string_view text, int ports, const std::stri
     if (!record.empty()) fail("incomplete network data record.");
     validate(result);
     return result;
+}
+
+std::string formatTouchstone(const std::vector<ResponseSample>& samples, int ports,
+                             double referenceOhms)
+{
+    if (ports != 1 && ports != 2)
+        throw std::invalid_argument("Touchstone export requires one or two ports.");
+    if (!std::isfinite(referenceOhms) || referenceOhms <= 0 || referenceOhms > 1e12)
+        throw std::invalid_argument("Touchstone export reference must be positive and finite.");
+    if (samples.empty())
+        throw std::invalid_argument("Cannot export an empty Touchstone response.");
+    if (samples.size() > 100000)
+        throw std::invalid_argument("Touchstone export supports at most 100000 samples.");
+
+    std::ostringstream output;
+    output.imbue(std::locale::classic());
+    output << "! RFdude Smith Chart V2\n";
+    output << "! RFdude-calculated S parameters; values in dB/angle format are not used\n";
+    output << "# MHz S RI R " << std::setprecision(17) << referenceOhms << '\n';
+    output << std::setprecision(17);
+    double previous = 0;
+    for (const auto& sample : samples) {
+        if (!std::isfinite(sample.frequencyMHz) || sample.frequencyMHz <= previous)
+            throw std::invalid_argument("Touchstone export frequencies must be positive and increasing.");
+        const auto finite = [](Complex value) {
+            return std::isfinite(value.real()) && std::isfinite(value.imag());
+        };
+        if (!finite(sample.s.s11) || (ports == 2
+            && (!finite(sample.s.s21) || !finite(sample.s.s12) || !finite(sample.s.s22))))
+            throw std::invalid_argument("Touchstone export contains a non-finite S parameter.");
+
+        output << sample.frequencyMHz
+               << ' ' << sample.s.s11.real() << ' ' << sample.s.s11.imag();
+        if (ports == 2)
+            output << ' ' << sample.s.s21.real() << ' ' << sample.s.s21.imag()
+                   << ' ' << sample.s.s12.real() << ' ' << sample.s.s12.imag()
+                   << ' ' << sample.s.s22.real() << ' ' << sample.s.s22.imag();
+        output << '\n';
+        previous = sample.frequencyMHz;
+    }
+    return output.str();
 }
 
 SParameters measuredParameters(const TouchstoneData& data, double frequency, double reference)

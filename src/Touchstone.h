@@ -8,6 +8,8 @@
 namespace rf {
 
 TouchstoneData parseTouchstone(std::string_view text, int ports, const std::string& name);
+std::string formatTouchstone(const std::vector<ResponseSample>& samples, int ports,
+                             double referenceOhms);
 void validate(const TouchstoneData& data);
 SParameters measuredParameters(const TouchstoneData& data, double frequencyMHz, double portOhms);
 Impedance startingImpedance(const Document& document);

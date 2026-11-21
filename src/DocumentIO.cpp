@@ -42,6 +42,20 @@ bool boolean(const QJsonObject& o, const QString& key)
     return o.value(key).toBool();
 }
 
+bool optionalBoolean(const QJsonObject& o, const QString& key, bool defaultValue)
+{
+    if (!o.contains(key)) return defaultValue;
+    if (!o.value(key).isBool())
+        fail("Invalid boolean: " + key);
+    return o.value(key).toBool();
+}
+
+double optionalNumber(const QJsonObject& o, const QString& key, double defaultValue)
+{
+    if (!o.contains(key)) return defaultValue;
+    return number(o, key);
+}
+
 QJsonObject object(const QJsonObject& o, const QString& key)
 {
     if (!o.value(key).isObject())
@@ -204,10 +218,28 @@ QByteArray toJson(const rf::Document& d)
         {"selected", d.selected}, {"components", components},
         {"display", QJsonObject{{"admittance", d.admittance}, {"polar", d.polar},
                                {"qCurves", d.qCurves}, {"markers", d.markers},
-                               {"vswrCircle", d.vswrCircle}}}};
+                               {"vswrCircle", d.vswrCircle},
+                               {"stabilityGmax", d.stabilityGmax},
+                               {"stabilityK", d.stabilityK},
+                               {"stabilityB1", d.stabilityB1},
+                               {"stabilitySourceCircle", d.stabilitySourceCircle},
+                               {"stabilityLoadCircle", d.stabilityLoadCircle},
+                               {"stabilityUnstableShade", d.stabilityUnstableShade},
+                               {"magnitudeAutoScale", d.magnitudeAutoScale},
+                               {"magnitudeCeilingDb", d.magnitudeCeilingDb},
+                               {"magnitudeFloorDb", d.magnitudeFloorDb},
+                               {"s11Trajectory", d.s11Trajectory},
+                               {"s22Trajectory", d.s22Trajectory},
+                               {"referenceOverlayVisible", d.referenceOverlayVisible}}},
+        {"trajectory", QJsonObject{{"startMHz", d.trajectoryStartMHz},
+                                   {"stopMHz", d.trajectoryStopMHz},
+                                   {"points", d.trajectoryPoints},
+                                   {"logarithmic", d.trajectoryLogarithmic}}}};
     if (measured)
         root.insert("measuredLoad", d.measuredLoad ? QJsonValue(measuredJson(*d.measuredLoad))
                                                   : QJsonValue(QJsonValue::Null));
+    if (d.referenceOverlay)
+        root.insert("referenceOverlay", measuredJson(*d.referenceOverlay));
     return QJsonDocument(root).toJson(QJsonDocument::Indented);
 }
 
@@ -248,6 +280,27 @@ rf::Document fromJson(const QByteArray& data)
     d.qCurves = boolean(display, "qCurves");
     d.markers = boolean(display, "markers");
     d.vswrCircle = boolean(display, "vswrCircle");
+    d.stabilityGmax = optionalBoolean(display, "stabilityGmax", false);
+    d.stabilityK = optionalBoolean(display, "stabilityK", false);
+    d.stabilityB1 = optionalBoolean(display, "stabilityB1", false);
+    d.stabilitySourceCircle = optionalBoolean(display, "stabilitySourceCircle", false);
+    d.stabilityLoadCircle = optionalBoolean(display, "stabilityLoadCircle", false);
+    d.stabilityUnstableShade = optionalBoolean(display, "stabilityUnstableShade", false);
+    d.magnitudeAutoScale = optionalBoolean(display, "magnitudeAutoScale", true);
+    d.magnitudeCeilingDb = optionalNumber(display, "magnitudeCeilingDb", 0);
+    d.magnitudeFloorDb = optionalNumber(display, "magnitudeFloorDb", -100);
+    d.s11Trajectory = optionalBoolean(display, "s11Trajectory", false);
+    d.s22Trajectory = optionalBoolean(display, "s22Trajectory", false);
+    d.referenceOverlayVisible = optionalBoolean(display, "referenceOverlayVisible", false);
+    if (o.contains("referenceOverlay") && !o.value("referenceOverlay").isNull())
+        d.referenceOverlay = measuredValue(object(o, "referenceOverlay"));
+    if (o.contains("trajectory")) {
+        const auto trajectory = object(o, "trajectory");
+        d.trajectoryStartMHz = number(trajectory, "startMHz");
+        d.trajectoryStopMHz = number(trajectory, "stopMHz");
+        d.trajectoryPoints = integer(trajectory, "points");
+        d.trajectoryLogarithmic = boolean(trajectory, "logarithmic");
+    }
     if (!o.value("components").isArray()) fail("Missing component array.");
     for (const auto entry : o.value("components").toArray()) {
         if (!entry.isObject()) fail("Invalid component entry.");

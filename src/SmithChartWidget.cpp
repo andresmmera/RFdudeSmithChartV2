@@ -1,4 +1,6 @@
 #include "SmithChartWidget.h"
+#include "FrequencyResponse.h"
+#include "Touchstone.h"
 
 #include <QMouseEvent>
 #include <QPainter>
@@ -44,6 +46,75 @@ void SmithChartWidget::setNetwork(const rf::Document& d, const rf::Evaluation& e
 {
     document_ = d;
     evaluation_ = e;
+    s11Trajectory_.clear();
+    s22Trajectory_.clear();
+    s11FrequencyMHz_.clear();
+    s22FrequencyMHz_.clear();
+    referenceS11_.clear();
+    referenceS22_.clear();
+    trajectoryStartMHz_ = document_.trajectoryStartMHz;
+    trajectoryStopMHz_ = document_.trajectoryStopMHz;
+    trajectoryPoints_ = document_.trajectoryPoints;
+    trajectoryLogarithmic_ = document_.trajectoryLogarithmic;
+    if (document_.referenceOverlay && document_.referenceOverlayVisible) {
+        for (const auto& sample : document_.referenceOverlay->samples) {
+            const double oldReference = document_.referenceOverlay->referenceOhms;
+            const double newReference = document_.referenceOhms;
+            const double r = (newReference - oldReference) / (newReference + oldReference);
+            if (r == 0) {
+                referenceS11_.push_back(sample.s.s11);
+                if (document_.referenceOverlay->ports == 2)
+                    referenceS22_.push_back(sample.s.s22);
+            } else if (document_.referenceOverlay->ports == 1) {
+                const rf::Complex denominator = 1.0 - r * sample.s.s11;
+                if (denominator != rf::Complex{}) {
+                    referenceS11_.push_back((sample.s.s11 - r) / denominator);
+                }
+            } else {
+                const rf::Complex a = 1.0 - r * sample.s.s11;
+                const rf::Complex d = 1.0 - r * sample.s.s22;
+                const rf::Complex determinant =
+                    a * d - r * r * sample.s.s12 * sample.s.s21;
+                if (determinant != rf::Complex{}) {
+                    referenceS11_.push_back(
+                        ((sample.s.s11 - r) * d + r * sample.s.s12 * sample.s.s21)
+                        / determinant);
+                    referenceS22_.push_back(
+                        ((sample.s.s22 - r) * a + r * sample.s.s21 * sample.s.s12)
+                        / determinant);
+                }
+            }
+        }
+    }
+    if (document_.s11Trajectory || document_.s22Trajectory) {
+        rf::Sweep sweep;
+        sweep.startMHz = document_.trajectoryStartMHz;
+        sweep.stopMHz = document_.trajectoryStopMHz;
+        sweep.points = document_.trajectoryPoints;
+        sweep.logarithmic = document_.trajectoryLogarithmic;
+        sweep.portOhms = document_.referenceOhms;
+        try {
+            rf::validate(sweep);
+            auto range = rf::measuredFrequencyRange(document_);
+            if (sweep.stopMHz > range.second) sweep.stopMHz = range.second;
+            if (sweep.startMHz < range.first) sweep.startMHz = range.first;
+            if (sweep.stopMHz > sweep.startMHz) {
+                for (const auto& sample : rf::frequencyResponse(document_.components, sweep)) {
+                    if (document_.s11Trajectory) {
+                        s11Trajectory_.push_back(sample.s.s11);
+                        s11FrequencyMHz_.push_back(sample.frequencyMHz);
+                    }
+                    if (document_.s22Trajectory) {
+                        s22Trajectory_.push_back(sample.s.s22);
+                        s22FrequencyMHz_.push_back(sample.frequencyMHz);
+                    }
+                }
+            }
+        } catch (const std::exception&) {
+            s11Trajectory_.clear();
+            s22Trajectory_.clear();
+        }
+    }
     update();
 }
 
@@ -134,6 +205,122 @@ void SmithChartWidget::paintEvent(QPaintEvent*)
                       document_.components[i].kind == rf::Kind::Measured ? Qt::DashLine : Qt::SolidLine));
         p.drawPath(path);
     }
+    if (!s11Trajectory_.empty()) {
+        QPainterPath path;
+        path.moveTo(pointForReflection(s11Trajectory_.front()));
+        for (const auto& gamma : s11Trajectory_)
+            path.lineTo(pointForReflection(gamma));
+        p.setPen(QPen(QColor("#9d409a"), 2.2, Qt::SolidLine));
+        p.drawPath(path);
+        p.setBrush(QColor("#9d409a"));
+        p.drawEllipse(pointForReflection(s11Trajectory_.front()), 3.5, 3.5);
+        p.drawEllipse(pointForReflection(s11Trajectory_.back()), 3.5, 3.5);
+        std::size_t nearest = 0;
+        if (!s11FrequencyMHz_.empty()) {
+            double nearestDistance = std::numeric_limits<double>::infinity();
+            for (std::size_t i = 0; i < s11FrequencyMHz_.size(); ++i) {
+                const double distance = std::abs(s11FrequencyMHz_[i] - document_.frequencyMHz);
+                if (distance < nearestDistance) {
+                    nearestDistance = distance;
+                    nearest = i;
+                }
+            }
+            p.setPen(QPen(QColor("#9d409a"), 1));
+            p.setBrush(QColor("#9d409a"));
+            p.drawEllipse(pointForReflection(s11Trajectory_[nearest]), 5.5, 5.5);
+        }
+    }
+    if (!s22Trajectory_.empty()) {
+        QPainterPath path;
+        path.moveTo(pointForReflection(s22Trajectory_.front()));
+        for (const auto& gamma : s22Trajectory_)
+            path.lineTo(pointForReflection(gamma));
+        p.setPen(QPen(QColor("#007f86"), 2.2, Qt::DashLine));
+        p.drawPath(path);
+        p.setBrush(QColor("#007f86"));
+        p.drawEllipse(pointForReflection(s22Trajectory_.front()), 3.5, 3.5);
+        p.drawEllipse(pointForReflection(s22Trajectory_.back()), 3.5, 3.5);
+        std::size_t nearest = 0;
+        if (!s22FrequencyMHz_.empty()) {
+            double nearestDistance = std::numeric_limits<double>::infinity();
+            for (std::size_t i = 0; i < s22FrequencyMHz_.size(); ++i) {
+                const double distance = std::abs(s22FrequencyMHz_[i] - document_.frequencyMHz);
+                if (distance < nearestDistance) {
+                    nearestDistance = distance;
+                    nearest = i;
+                }
+            }
+            p.setPen(QPen(QColor("#007f86"), 1));
+            p.setBrush(QColor("#007f86"));
+            p.drawEllipse(pointForReflection(s22Trajectory_[nearest]), 5.5, 5.5);
+        }
+    }
+    if (!referenceS11_.empty()) {
+        QPainterPath path;
+        path.moveTo(pointForReflection(referenceS11_.front()));
+        for (const auto& gamma : referenceS11_)
+            path.lineTo(pointForReflection(gamma));
+        p.setPen(QPen(QColor("#cc5e00"), 2.3, Qt::SolidLine));
+        p.drawPath(path);
+        p.setBrush(QColor("#cc5e00"));
+        p.drawEllipse(pointForReflection(referenceS11_.front()), 3.5, 3.5);
+        p.drawEllipse(pointForReflection(referenceS11_.back()), 3.5, 3.5);
+    }
+    if (!referenceS22_.empty()) {
+        QPainterPath path;
+        path.moveTo(pointForReflection(referenceS22_.front()));
+        for (const auto& gamma : referenceS22_)
+            path.lineTo(pointForReflection(gamma));
+        p.setPen(QPen(QColor("#005fa3"), 2.3, Qt::DashLine));
+        p.drawPath(path);
+        p.setBrush(QColor("#005fa3"));
+        p.drawEllipse(pointForReflection(referenceS22_.front()), 3.5, 3.5);
+        p.drawEllipse(pointForReflection(referenceS22_.back()), 3.5, 3.5);
+    }
+    if (document_.stabilitySourceCircle || document_.stabilityLoadCircle
+        || document_.stabilityUnstableShade) {
+        try {
+            const auto s = rf::sParameters(document_.components,
+                                            document_.frequencyMHz,
+                                            document_.referenceOhms);
+            const auto circles = rf::stabilityCircles(s);
+            const auto drawCircle = [&](const rf::StabilityCircle& circle,
+                                        const QColor& color,
+                                        bool shadeUnstable,
+                                        const QString& label) {
+                if (!circle.valid) return;
+                const auto center = pointForReflection(circle.center);
+                const double mappedRadius = r * circle.radius;
+                if (document_.stabilityUnstableShade && shadeUnstable) {
+                    p.save();
+                    p.setPen(Qt::NoPen);
+                    p.setBrush(QBrush(QColor(color.red(), color.green(), color.blue(), 55),
+                                      Qt::Dense5Pattern));
+                    p.drawEllipse(center, mappedRadius, mappedRadius);
+                    p.restore();
+                }
+                p.setPen(QPen(color, 2, Qt::DashLine));
+                p.setBrush(Qt::NoBrush);
+                p.drawEllipse(center, mappedRadius, mappedRadius);
+                p.drawText(center + QPointF(mappedRadius * 0.25,
+                                             mappedRadius * 0.25),
+                           label);
+            };
+            if (document_.stabilitySourceCircle) {
+                drawCircle(circles.source, QColor("#9d409a"),
+                           circles.source.originStable ? circles.source.originOutside
+                                                       : circles.source.originInside,
+                           tr("Source"));
+            }
+            if (document_.stabilityLoadCircle) {
+                drawCircle(circles.load, QColor("#007f86"),
+                           circles.load.originStable ? circles.load.originOutside
+                                                     : circles.load.originInside,
+                           tr("Load"));
+            }
+        } catch (const std::exception&) {
+        }
+    }
     p.restore();
     p.setPen(QPen(QColor("#873d3d"), 1.5));
     p.setBrush(Qt::NoBrush);
@@ -142,6 +329,45 @@ void SmithChartWidget::paintEvent(QPaintEvent*)
     p.drawText(QRectF(center.x() - 40, center.y() + r + 8, 80, 20), Qt::AlignCenter, tr("Z0 = %1").arg(numeric(document_.referenceOhms)));
     p.drawText(QPointF(center.x() - r - 26, center.y() + 4), "0");
     p.drawText(QPointF(center.x() + r + 5, center.y() + 4), tr("Open"));
+    if (!s11Trajectory_.empty() || !s22Trajectory_.empty()) {
+        int legendOffset = 0;
+        if (!s11Trajectory_.empty()) {
+            p.setPen(QPen(QColor("#9d409a"), 2.2));
+            p.drawLine(QPointF(center.x() - r, center.y() - r - 18),
+                       QPointF(center.x() - r + 24, center.y() - r - 18));
+            p.setPen(QColor("#606060"));
+            p.drawText(QPointF(center.x() - r + 30, center.y() - r - 14), tr("S11 trajectory"));
+            legendOffset = 150;
+        }
+        if (!s22Trajectory_.empty()) {
+            p.setPen(QPen(QColor("#007f86"), 2.2, Qt::DashLine));
+            p.drawLine(QPointF(center.x() - r + legendOffset, center.y() - r - 18),
+                       QPointF(center.x() - r + legendOffset + 24, center.y() - r - 18));
+            p.setPen(QColor("#606060"));
+            p.drawText(QPointF(center.x() - r + legendOffset + 30, center.y() - r - 14),
+                       tr("S22 trajectory"));
+        }
+    }
+    if (!referenceS11_.empty() || !referenceS22_.empty()) {
+        int referenceLegendOffset = 0;
+        if (!referenceS11_.empty()) {
+            p.setPen(QPen(QColor("#cc5e00"), 2.3));
+            p.drawLine(QPointF(center.x() - r, center.y() - r - 42),
+                       QPointF(center.x() - r + 24, center.y() - r - 42));
+            p.setPen(QColor("#606060"));
+            p.drawText(QPointF(center.x() - r + 30, center.y() - r - 38),
+                       tr("Reference S11"));
+            referenceLegendOffset = 150;
+        }
+        if (!referenceS22_.empty()) {
+            p.setPen(QPen(QColor("#005fa3"), 2.3, Qt::DashLine));
+            p.drawLine(QPointF(center.x() - r + referenceLegendOffset, center.y() - r - 42),
+                       QPointF(center.x() - r + referenceLegendOffset + 24, center.y() - r - 42));
+            p.setPen(QColor("#606060"));
+            p.drawText(QPointF(center.x() - r + referenceLegendOffset + 30, center.y() - r - 38),
+                       tr("Reference S22"));
+        }
+    }
     for (std::size_t i = 0; i < evaluation_.nodes.size(); ++i) {
         const auto point = pointForReflection(evaluation_.nodes[i].reflection(document_.referenceOhms));
         p.setPen(QPen(QColor("#19804a"), 1.5));

@@ -1,5 +1,6 @@
 #include "DocumentIO.h"
 #include "RfModel.h"
+#include "Touchstone.h"
 
 #include <QFile>
 #include <QJsonDocument>
@@ -368,6 +369,20 @@ private slots:
         d.selected = 0;
         d.admittance = d.qCurves = d.vswrCircle = d.polar = true;
         d.markers = false;
+        d.stabilityGmax = d.stabilityK = d.stabilityB1 = true;
+        d.magnitudeAutoScale = false;
+        d.magnitudeCeilingDb = 50;
+        d.magnitudeFloorDb = -50;
+        d.s11Trajectory = d.s22Trajectory = true;
+        d.trajectoryStartMHz = 200;
+        d.trajectoryStopMHz = 3000;
+        d.trajectoryPoints = 257;
+        d.trajectoryLogarithmic = true;
+        d.stabilitySourceCircle = d.stabilityLoadCircle = d.stabilityUnstableShade = true;
+        d.referenceOverlay = rf::parseTouchstone(
+            "# MHz S RI R 50\n100 0.1 0.2 0.8 -0.1 0.7 0.2 0.2 -0.3\n",
+            2, "reference.s2p");
+        d.referenceOverlayVisible = true;
         d.startOhms = {25, -50};
         d.goalOhms = {75, 20};
         d.frequencyPresets = {400, 500, 600};

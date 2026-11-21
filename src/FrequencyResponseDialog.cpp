@@ -9,10 +9,12 @@
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QGridLayout>
+#include <QCheckBox>
 #include <QLabel>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
@@ -92,6 +94,36 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
     mode_->setObjectName("responseMode");
     mode_->addItems({tr("Two-port circuit: S11/S21/S22"), tr("Terminated input: S11 only")});
     mode_->setCurrentIndex(terminated_ ? 1 : 0);
+    stabilityGmax_ = new QCheckBox(tr("Gmax / MSG"));
+    stabilityGmax_->setObjectName("stabilityGmax");
+    stabilityGmax_->setChecked(document_.stabilityGmax);
+    stabilityK_ = new QCheckBox(tr("K"));
+    stabilityK_->setObjectName("stabilityK");
+    stabilityK_->setChecked(document_.stabilityK);
+    stabilityB1_ = new QCheckBox(tr("B1"));
+    stabilityB1_->setObjectName("stabilityB1");
+    stabilityB1_->setChecked(document_.stabilityB1);
+    magnitudeAuto_ = new QCheckBox(tr("Auto amplitude scale"));
+    magnitudeAuto_->setObjectName("magnitudeAutoScale");
+    magnitudeAuto_->setChecked(document_.magnitudeAutoScale);
+    magnitudeCeiling_ = new QComboBox;
+    magnitudeCeiling_->setObjectName("magnitudeCeiling");
+    for (const double db : {0.0, 10.0, 20.0, 50.0, 100.0, 200.0, 300.0})
+        magnitudeCeiling_->addItem(tr("%1 dB").arg(db, 0, 'g', 5), db);
+    magnitudeCeiling_->setCurrentIndex(
+        magnitudeCeiling_->findData(document_.magnitudeCeilingDb) < 0 ? 3
+        : magnitudeCeiling_->findData(document_.magnitudeCeilingDb));
+    magnitudeFloor_ = new QComboBox;
+    magnitudeFloor_->setObjectName("magnitudeFloor");
+    for (const double db : {0.0, -10.0, -20.0, -50.0, -100.0, -300.0})
+        magnitudeFloor_->addItem(tr("%1 dB").arg(db, 0, 'g', 5), db);
+    magnitudeFloor_->setCurrentIndex(
+        magnitudeFloor_->findData(document_.magnitudeFloorDb) < 0 ? 4
+        : magnitudeFloor_->findData(document_.magnitudeFloorDb));
+    const auto stabilityEnabled = !terminated_;
+    stabilityGmax_->setEnabled(stabilityEnabled);
+    stabilityK_->setEnabled(stabilityEnabled);
+    stabilityB1_->setEnabled(stabilityEnabled);
     const auto add = [&](int row, int column, const QString& text, QWidget* widget) {
         controls->addWidget(new QLabel(text), row, column);
         controls->addWidget(widget, row, column + 1);
@@ -103,12 +135,27 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
     add(2, 0, tr("Frequency scale"), scale_);
     controls->addWidget(new QLabel(tr("Response")), 3, 0);
     controls->addWidget(mode_, 3, 1, 1, 3);
+    controls->addWidget(new QLabel(tr("Stability")), 4, 0);
+    controls->addWidget(stabilityGmax_, 4, 1);
+    controls->addWidget(stabilityK_, 4, 2);
+    controls->addWidget(stabilityB1_, 4, 3);
+    controls->addWidget(magnitudeAuto_, 5, 0, 1, 2);
+    controls->addWidget(new QLabel(tr("Ceiling")), 5, 2);
+    controls->addWidget(magnitudeCeiling_, 5, 3);
+    controls->addWidget(new QLabel(tr("Floor")), 6, 2);
+    controls->addWidget(magnitudeFloor_, 6, 3);
 
     for (auto* spin : {static_cast<QDoubleSpinBox*>(start_), static_cast<QDoubleSpinBox*>(stop_), ports_})
         connect(spin, &QDoubleSpinBox::valueChanged, this, [this] { autoApply(); });
     connect(points_, &QSpinBox::valueChanged, this, [this] { autoApply(); });
     connect(scale_, &QComboBox::currentIndexChanged, this, [this] { autoApply(); });
     connect(mode_, &QComboBox::currentIndexChanged, this, [this] { autoApply(); });
+    connect(stabilityGmax_, &QCheckBox::toggled, this, [this](bool) { applyDisplayOptions(); });
+    connect(stabilityK_, &QCheckBox::toggled, this, [this](bool) { applyDisplayOptions(); });
+    connect(stabilityB1_, &QCheckBox::toggled, this, [this](bool) { applyDisplayOptions(); });
+    connect(magnitudeAuto_, &QCheckBox::toggled, this, [this](bool) { applyDisplayOptions(); });
+    connect(magnitudeCeiling_, &QComboBox::currentIndexChanged, this, [this](int) { applyDisplayOptions(); });
+    connect(magnitudeFloor_, &QComboBox::currentIndexChanged, this, [this](int) { applyDisplayOptions(); });
 
     layout->addLayout(controls);
     status_ = new QLabel;
@@ -126,18 +173,25 @@ FrequencyResponseDialog::FrequencyResponseDialog(const rf::Document& document, Q
     layout->addWidget(marker_);
     auto* hint = new QLabel(tr("Click a frequency in the plot to update the Smith chart (undoable). "
         "Marker values are calculated at the exact analysis frequency. Measured data uses complex linear interpolation. "
-        "S22 is dashed; coincident traces may overlap. Values below -100 dB are clipped in the plot only."));
+        "S22 is dashed; coincident traces may overlap. The amplitude floor is configurable."));
     hint->setWordWrap(true);
     layout->addWidget(hint);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
     auto* exportButton = buttons->addButton(tr("Export plot PNG..."), QDialogButtonBox::ActionRole);
     exportButton->setObjectName("exportResponse");
     exportButton->setAutoDefault(false);
+    auto* touchstoneButton = buttons->addButton(tr("Export Touchstone..."), QDialogButtonBox::ActionRole);
+    touchstoneButton->setObjectName("exportTouchstone");
+    touchstoneButton->setAutoDefault(false);
     buttons->button(QDialogButtonBox::Close)->setAutoDefault(false);
     connect(exportButton, &QPushButton::clicked, this, &FrequencyResponseDialog::exportPlot);
+    connect(touchstoneButton, &QPushButton::clicked, this, &FrequencyResponseDialog::exportTouchstone);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     layout->addWidget(buttons);
     connect(plot_, &ResponsePlotWidget::frequencySelected, this, &FrequencyResponseDialog::frequencySelected);
+    connect(plot_, &ResponsePlotWidget::frequencyTuneRequested, this,
+            [this](int direction) { emit frequencyTuneRequested(direction); });
+    applyDisplayOptions();
     calculate();
 }
 
@@ -146,7 +200,48 @@ void FrequencyResponseDialog::applySweep()
     sweep_ = {start_->value(), stop_->value(), points_->value(),
               scale_->currentIndex() == 1, ports_->value()};
     terminated_ = mode_->currentIndex() == 1;
+    applyDisplayOptions();
+    const bool stabilityEnabled = !terminated_;
+    stabilityGmax_->setEnabled(stabilityEnabled);
+    stabilityK_->setEnabled(stabilityEnabled);
+    stabilityB1_->setEnabled(stabilityEnabled);
     calculate();
+}
+
+void FrequencyResponseDialog::applyDisplayOptions()
+{
+    const bool gmaxPreference = stabilityGmax_->isChecked();
+    const bool kPreference = stabilityK_->isChecked();
+    const bool b1Preference = stabilityB1_->isChecked();
+    const bool gmax = !terminated_ && gmaxPreference;
+    const bool k = !terminated_ && kPreference;
+    const bool b1 = !terminated_ && b1Preference;
+    const bool automatic = magnitudeAuto_->isChecked();
+    double ceiling = magnitudeCeiling_->currentData().toDouble();
+    double floor = magnitudeFloor_->currentData().toDouble();
+    if (!automatic && floor >= ceiling) {
+        floor = std::max(-300.0, floor - 10.0);
+        const int floorIndex = magnitudeFloor_->findData(floor);
+        if (floorIndex >= 0) magnitudeFloor_->setCurrentIndex(floorIndex);
+        else floor = magnitudeFloor_->currentData().toDouble();
+    }
+    magnitudeCeiling_->setEnabled(!automatic);
+    magnitudeFloor_->setEnabled(!automatic);
+    document_.stabilityGmax = gmaxPreference;
+    document_.stabilityK = kPreference;
+    document_.stabilityB1 = b1Preference;
+    document_.magnitudeAutoScale = automatic;
+    document_.magnitudeCeilingDb = ceiling;
+    document_.magnitudeFloorDb = floor;
+    plot_->setStabilityTraces(gmax, k, b1);
+    plot_->setMagnitudeScale(automatic, ceiling, floor);
+    emit displayOptionsChanged(gmaxPreference, kPreference, b1Preference,
+                               automatic, ceiling, floor);
+}
+
+bool FrequencyResponseDialog::plotHasFocus() const
+{
+    return plot_ && plot_->hasFocus();
 }
 
 void FrequencyResponseDialog::autoApply()
@@ -169,12 +264,45 @@ void FrequencyResponseDialog::setNetwork(const rf::Document& document)
     const bool rangeChanged = rf::measuredFrequencyRange(document_) != rf::measuredFrequencyRange(document);
     const bool loadChanged = document_.measuredLoad.has_value() != document.measuredLoad.has_value();
     document_ = document;
+    {
+        const QSignalBlocker gmaxBlock(stabilityGmax_);
+        const QSignalBlocker kBlock(stabilityK_);
+        const QSignalBlocker b1Block(stabilityB1_);
+        const QSignalBlocker autoBlock(magnitudeAuto_);
+        const QSignalBlocker ceilingBlock(magnitudeCeiling_);
+        const QSignalBlocker floorBlock(magnitudeFloor_);
+        stabilityGmax_->setChecked(document_.stabilityGmax);
+        stabilityK_->setChecked(document_.stabilityK);
+        stabilityB1_->setChecked(document_.stabilityB1);
+        magnitudeAuto_->setChecked(document_.magnitudeAutoScale);
+        magnitudeCeiling_->setCurrentIndex(
+            magnitudeCeiling_->findData(document_.magnitudeCeilingDb) < 0 ? 3
+            : magnitudeCeiling_->findData(document_.magnitudeCeilingDb));
+        magnitudeFloor_->setCurrentIndex(
+            magnitudeFloor_->findData(document_.magnitudeFloorDb) < 0 ? 4
+            : magnitudeFloor_->findData(document_.magnitudeFloorDb));
+        magnitudeCeiling_->setEnabled(!document_.magnitudeAutoScale);
+        magnitudeFloor_->setEnabled(!document_.magnitudeAutoScale);
+    }
+    stabilityGmax_->setEnabled(!terminated_);
+    stabilityK_->setEnabled(!terminated_);
+    stabilityB1_->setEnabled(!terminated_);
+    plot_->setStabilityTraces(!terminated_ && document_.stabilityGmax,
+                              !terminated_ && document_.stabilityK,
+                              !terminated_ && document_.stabilityB1);
+    plot_->setMagnitudeScale(document_.magnitudeAutoScale,
+                             document_.magnitudeCeilingDb,
+                             document_.magnitudeFloorDb);
     if (loadChanged && document.measuredLoad) {
         // A measured load only exists in the terminated view; removing it leaves the mode as is.
         terminated_ = true;
         updatingControls_ = true;
         mode_->setCurrentIndex(1);
         updatingControls_ = false;
+        stabilityGmax_->setEnabled(false);
+        stabilityK_->setEnabled(false);
+        stabilityB1_->setEnabled(false);
+        plot_->setStabilityTraces(false, false, false);
     }
     if (changed) {
         if (rangeChanged) constrainSweep();
@@ -252,6 +380,20 @@ void FrequencyResponseDialog::updateMarker()
             .arg(document_.frequencyMHz < sweep_.startMHz || document_.frequencyMHz > sweep_.stopMHz
                      ? tr(" (outside sweep)") : QString{})
             .arg(magnitude(s.s11), magnitude(s.s21), magnitude(s.s22)));
+        if (!terminated_
+            && (document_.stabilityGmax || document_.stabilityK || document_.stabilityB1)) {
+            const auto stability = rf::stabilityMetrics(s);
+            QString gainText = tr("N/A");
+            if (stability.gmaxDefined)
+                gainText = tr("Gmax %1 dB").arg(stability.gmaxDb, 0, 'f', 3);
+            else if (stability.msgDefined)
+                gainText = tr("MSG %1 dB").arg(stability.msgDb, 0, 'f', 3);
+            marker_->setText(marker_->text() + tr("\n%1     K: %2     |Delta|: %3     B1: %4")
+                .arg(gainText)
+                .arg(stability.kDefined ? QString::number(stability.k, 'g', 7) : tr("N/A"))
+                .arg(QString::number(stability.deltaMagnitude, 'g', 7))
+                .arg(QString::number(stability.b1, 'g', 7)));
+        }
         if (terminated_) marker_->setText(tr("Analysis marker: %1 MHz%2\nTerminated input S11: %3 dB")
             .arg(document_.frequencyMHz, 0, 'g', 9)
             .arg(document_.frequencyMHz < sweep_.startMHz || document_.frequencyMHz > sweep_.stopMHz
@@ -276,6 +418,44 @@ void FrequencyResponseDialog::exportPlot()
         QMessageBox::critical(this, tr("Export failed"), tr("Could not write response image to %1.").arg(path));
 }
 
+void FrequencyResponseDialog::exportTouchstone()
+{
+    if (plot_->samples().empty()) {
+        QMessageBox::warning(this, tr("Cannot export Touchstone"), tr("Apply a valid sweep first."));
+        return;
+    }
+    const int ports = terminated_ ? 1 : 2;
+    const QString filter = ports == 1
+        ? tr("Touchstone 1-port (*.s1p)")
+        : tr("Touchstone 2-port (*.s2p)");
+    const QString defaultName = ports == 1
+        ? "network-response.s1p" : "network-response.s2p";
+    auto path = QFileDialog::getSaveFileName(this, tr("Export Touchstone response"),
+                                             defaultName, filter);
+    if (path.isEmpty()) return;
+    if (!path.endsWith(ports == 1 ? ".s1p" : ".s2p", Qt::CaseInsensitive))
+        path += ports == 1 ? ".s1p" : ".s2p";
+
+    try {
+        std::vector<rf::ResponseSample> exported = plot_->samples();
+        if (ports == 1) {
+            for (auto& sample : exported)
+                sample.s = {sample.s.s11, 0, 0, 0};
+        }
+        const std::string text = rf::formatTouchstone(exported, ports, sweep_.portOhms);
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            throw std::runtime_error(file.errorString().toStdString());
+        const QByteArray bytes(text.data(), static_cast<qsizetype>(text.size()));
+        if (file.write(bytes) != bytes.size())
+            throw std::runtime_error(file.errorString().toStdString());
+        if (file.error() != QFileDevice::NoError)
+            throw std::runtime_error(file.errorString().toStdString());
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, tr("Touchstone export failed"), e.what());
+    }
+}
+
 QImage FrequencyResponseDialog::responseImage()
 {
     if (plot_->samples().empty())
@@ -296,19 +476,27 @@ QImage FrequencyResponseDialog::responseImage()
     const int width = std::max(900, plotSize.width() + 2 * margin);
     QString header = tr("%1\nFrequency response: %2 - %3 MHz, %4, %5 points; both ports %6 ohm\n"
         "Port 1: input; port 2: load end. External source/start/goal terminations excluded.\n"
-        "Microstrip dielectric loss and measured blocks included; complex linear interpolation, no extrapolation; floor -100 dB.")
+        "Microstrip dielectric loss and measured blocks included; complex linear interpolation, no extrapolation.\n"
+        "Amplitude %7 dB to %8 dB.")
         .arg(QString::fromStdString(document_.title))
         .arg(sweep_.startMHz, 0, 'g', 8).arg(sweep_.stopMHz, 0, 'g', 8)
         .arg(sweep_.logarithmic ? tr("logarithmic") : tr("linear"))
-        .arg(singlePoint_ ? 1 : sweep_.points).arg(sweep_.portOhms, 0, 'g', 8);
+        .arg(singlePoint_ ? 1 : sweep_.points).arg(sweep_.portOhms, 0, 'g', 8)
+        .arg(document_.magnitudeAutoScale ? tr("auto ceiling")
+                                          : QString::number(document_.magnitudeCeilingDb, 'g', 7))
+        .arg(document_.magnitudeAutoScale ? -100.0 : document_.magnitudeFloorDb, 0, 'g', 7);
     if (terminated_)
         header = tr("%1\nTerminated input S11: %2 - %3 MHz, %4, %5 points; input %6 ohm\n"
             "Starting/measured load included; S21/S22 not defined. Complex linear interpolation; no extrapolation.\n"
-            "Microstrip dielectric loss and measured blocks included; plot floor -100 dB.")
+            "Microstrip dielectric loss and measured blocks included.\n"
+            "Amplitude %7 dB to %8 dB.")
             .arg(QString::fromStdString(document_.title))
             .arg(sweep_.startMHz, 0, 'g', 8).arg(sweep_.stopMHz, 0, 'g', 8)
             .arg(sweep_.logarithmic ? tr("logarithmic") : tr("linear"))
-            .arg(singlePoint_ ? 1 : sweep_.points).arg(sweep_.portOhms, 0, 'g', 8);
+            .arg(singlePoint_ ? 1 : sweep_.points).arg(sweep_.portOhms, 0, 'g', 8)
+            .arg(document_.magnitudeAutoScale ? tr("auto ceiling")
+                                              : QString::number(document_.magnitudeCeilingDb, 'g', 7))
+            .arg(document_.magnitudeAutoScale ? -100.0 : document_.magnitudeFloorDb, 0, 'g', 7);
     if (singlePoint_) header += tr("\nSingle measured frequency only; no sweep or extrapolation.");
     QImage image(width, plotSize.height() + 240, QImage::Format_RGB32);
     if (image.isNull()) return image;

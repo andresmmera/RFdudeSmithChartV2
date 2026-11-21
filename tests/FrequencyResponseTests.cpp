@@ -24,6 +24,56 @@ class FrequencyResponseTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void stabilityMetricsAndGain()
+    {
+        const auto through = rf::stabilityMetrics(rf::SParameters{0, 1, 1, 0});
+        QCOMPARE(through.deltaMagnitude, 1.0);
+        QCOMPARE(through.b1, 0.0);
+        QCOMPARE(through.k, 1.0);
+        QVERIFY(through.kDefined);
+        QVERIFY(through.gmaxDefined);
+        QVERIFY(std::abs(through.gmaxDb) < 1e-10);
+        QVERIFY(!through.msgDefined);
+
+        const rf::SParameters stable{rf::Complex(.4, 0), rf::Complex(2, 0),
+                                     rf::Complex(.1, 0), rf::Complex(.3, 0)};
+        const auto metrics = rf::stabilityMetrics(stable);
+        QVERIFY(std::abs(metrics.deltaMagnitude - .08) < 1e-10);
+        QVERIFY(std::abs(metrics.b1 - 1.0636) < 1e-10);
+        QVERIFY(metrics.kDefined);
+        QVERIFY(std::abs(metrics.k - 1.891) < 1e-10);
+        QVERIFY(metrics.gmaxDefined);
+        QVERIFY(std::isfinite(metrics.gmaxDb));
+
+        const rf::SParameters potentiallyStable{rf::Complex(.6, 0), rf::Complex(.5, 0),
+                                                rf::Complex(.5, 0), rf::Complex(.7, 0)};
+        const auto condition = rf::stabilityMetrics(potentiallyStable);
+        QVERIFY(condition.kDefined);
+        QVERIFY(condition.k < 1);
+        QVERIFY(condition.msgDefined);
+        QVERIFY(std::isfinite(condition.msgDb));
+    }
+
+    void stabilityCircleGeometry()
+    {
+        const rf::SParameters stable{rf::Complex(.2, 0), rf::Complex(2, 0),
+                                     rf::Complex(.3, 0), rf::Complex(.1, 0)};
+        const auto circles = rf::stabilityCircles(stable);
+        QVERIFY(circles.source.valid);
+        QVERIFY(circles.load.valid);
+        QVERIFY(std::isfinite(circles.source.center.real()));
+        QVERIFY(std::isfinite(circles.source.center.imag()));
+        QVERIFY(circles.source.radius >= 0);
+        QVERIFY(std::isfinite(circles.load.center.real()));
+        QVERIFY(std::isfinite(circles.load.center.imag()));
+        QVERIFY(circles.load.radius >= 0);
+
+        const rf::SParameters degenerate{0, 0, 0, 0};
+        const auto none = rf::stabilityCircles(degenerate);
+        QVERIFY(!none.source.valid);
+        QVERIFY(!none.load.valid);
+    }
+
     void throughAndReferences()
     {
         const auto empty = rf::sParameters({}, 1000, 50);

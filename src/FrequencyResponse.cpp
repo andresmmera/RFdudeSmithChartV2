@@ -87,6 +87,87 @@ SParameters cascade(const SParameters& left, const SParameters& right)
 }
 }
 
+StabilityMetrics stabilityMetrics(const SParameters& s)
+{
+    StabilityMetrics result;
+    const Complex delta = s.s11 * s.s22 - s.s12 * s.s21;
+    result.deltaMagnitude = std::abs(delta);
+    result.b1 = 1 + std::norm(s.s11) - std::norm(s.s22)
+        - std::norm(delta);
+
+    const double transferMagnitude = std::abs(s.s12 * s.s21);
+    if (std::isfinite(transferMagnitude) && transferMagnitude > 1e-15) {
+        result.k = (1 - std::norm(s.s11) - std::norm(s.s22)
+                    + std::norm(delta)) / (2 * transferMagnitude);
+        if (std::isfinite(result.k)) result.kDefined = true;
+    }
+
+    const double s12Magnitude = std::abs(s.s12);
+    if (result.kDefined && s12Magnitude > 1e-15) {
+        const double ratio = std::abs(s.s21) / s12Magnitude;
+        if (result.k >= 1) {
+            const double inverseK = 1 / result.k;
+            const double root = result.k > 1e150
+                ? result.k
+                : result.k * std::sqrt(std::max(0.0,
+                    (1 - inverseK) * (1 + inverseK)));
+            double factor;
+            if (root >= 1e308 || result.k + root >= 1e308)
+                factor = 0.5 / result.k;
+            else
+                factor = 1 / (result.k + root);
+            const double gain = ratio * factor;
+            if (std::isfinite(gain) && gain > 0) {
+                result.gmaxDb = 20 * std::log10(gain);
+                result.gmaxDefined = true;
+            }
+        } else if (result.k < 1) {
+            const double gain = ratio;
+            if (std::isfinite(gain) && gain > 0) {
+                result.msgDb = 20 * std::log10(gain);
+                result.msgDefined = true;
+            }
+        }
+    }
+    return result;
+}
+
+StabilityCircles stabilityCircles(const SParameters& s)
+{
+    StabilityCircles result;
+    const Complex delta = s.s11 * s.s22 - s.s12 * s.s21;
+    const double transfer = std::abs(s.s12 * s.s21);
+    if (transfer < 1e-15)
+        return result;
+
+    const double loadDenominator = std::norm(s.s22) - std::norm(delta);
+    if (std::abs(loadDenominator) > 1e-12) {
+        const Complex loadNumerator = std::conj(s.s22 - delta * std::conj(s.s11));
+        result.load.center = loadNumerator / loadDenominator;
+        result.load.radius = transfer / std::abs(loadDenominator);
+        result.load.valid = std::isfinite(result.load.center.real())
+                            && std::isfinite(result.load.center.imag())
+                            && std::isfinite(result.load.radius);
+        result.load.originStable = std::abs(s.s11) < 1;
+        result.load.originInside = std::abs(result.load.center) < result.load.radius;
+        result.load.originOutside = !result.load.originInside;
+    }
+
+    const double sourceDenominator = std::norm(s.s11) - std::norm(delta);
+    if (std::abs(sourceDenominator) > 1e-12) {
+        const Complex sourceNumerator = std::conj(s.s11 - delta * std::conj(s.s22));
+        result.source.center = sourceNumerator / sourceDenominator;
+        result.source.radius = transfer / std::abs(sourceDenominator);
+        result.source.valid = std::isfinite(result.source.center.real())
+                              && std::isfinite(result.source.center.imag())
+                              && std::isfinite(result.source.radius);
+        result.source.originStable = std::abs(s.s22) < 1;
+        result.source.originInside = std::abs(result.source.center) < result.source.radius;
+        result.source.originOutside = !result.source.originInside;
+    }
+    return result;
+}
+
 SParameters sParameters(const std::vector<Component>& components, double frequencyMHz,
                         double portOhms)
 {

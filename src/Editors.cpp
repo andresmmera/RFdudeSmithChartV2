@@ -16,6 +16,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QVBoxLayout>
 
 #include <cmath>
@@ -482,6 +483,67 @@ std::optional<rf::Document> editSettings(QWidget* parent, const rf::Document& or
     for (int i = 0; i < 3; ++i)
         presets[static_cast<std::size_t>(i)] = addFrequencyRow(form, QString("F%1 preset").arg(i + 1),
                                                QString("preset%1").arg(i + 1), original.frequencyPresets[static_cast<std::size_t>(i)]);
+    auto* stabilityGmax = new QCheckBox("Show Gmax / MSG frequency trace");
+    stabilityGmax->setObjectName("stabilityGmax");
+    stabilityGmax->setChecked(original.stabilityGmax);
+    form->addRow(stabilityGmax);
+    auto* stabilityK = new QCheckBox("Show K stability-factor trace");
+    stabilityK->setObjectName("stabilityK");
+    stabilityK->setChecked(original.stabilityK);
+    form->addRow(stabilityK);
+    auto* stabilityB1 = new QCheckBox("Show B1 stability-factor trace");
+    stabilityB1->setObjectName("stabilityB1");
+    stabilityB1->setChecked(original.stabilityB1);
+    form->addRow(stabilityB1);
+    auto* s11Trajectory = new QCheckBox("Show S11 trajectory over frequency");
+    s11Trajectory->setObjectName("s11Trajectory");
+    s11Trajectory->setChecked(original.s11Trajectory);
+    form->addRow(s11Trajectory);
+    auto* s22Trajectory = new QCheckBox("Show S22 trajectory over frequency");
+    s22Trajectory->setObjectName("s22Trajectory");
+    s22Trajectory->setChecked(original.s22Trajectory);
+    form->addRow(s22Trajectory);
+    auto* trajectoryStart = addFrequencyRow(form, "Trajectory start", "trajectoryStart",
+                                            original.trajectoryStartMHz);
+    auto* trajectoryStop = addFrequencyRow(form, "Trajectory stop", "trajectoryStop",
+                                           original.trajectoryStopMHz);
+    auto* trajectoryPoints = new QSpinBox;
+    trajectoryPoints->setObjectName("trajectoryPoints");
+    trajectoryPoints->setRange(2, 2001);
+    trajectoryPoints->setValue(original.trajectoryPoints);
+    form->addRow("Trajectory points", trajectoryPoints);
+    auto* trajectoryLog = new QCheckBox("Use logarithmic trajectory sweep");
+    trajectoryLog->setObjectName("trajectoryLogarithmic");
+    trajectoryLog->setChecked(original.trajectoryLogarithmic);
+    form->addRow(trajectoryLog);
+    auto* stabilitySourceCircle = new QCheckBox("Show source stability circle");
+    stabilitySourceCircle->setObjectName("stabilitySourceCircle");
+    stabilitySourceCircle->setChecked(original.stabilitySourceCircle);
+    form->addRow(stabilitySourceCircle);
+    auto* stabilityLoadCircle = new QCheckBox("Show load stability circle");
+    stabilityLoadCircle->setObjectName("stabilityLoadCircle");
+    stabilityLoadCircle->setChecked(original.stabilityLoadCircle);
+    form->addRow(stabilityLoadCircle);
+    auto* stabilityUnstableShade = new QCheckBox("Shade unstable circle regions");
+    stabilityUnstableShade->setObjectName("stabilityUnstableShade");
+    stabilityUnstableShade->setChecked(original.stabilityUnstableShade);
+    form->addRow(stabilityUnstableShade);
+    auto* referenceOverlay = new QCheckBox("Show imported reference Touchstone overlay");
+    referenceOverlay->setObjectName("referenceOverlayVisible");
+    referenceOverlay->setChecked(original.referenceOverlay.has_value()
+                                 && original.referenceOverlayVisible);
+    referenceOverlay->setEnabled(original.referenceOverlay.has_value());
+    form->addRow(referenceOverlay);
+    const auto trajectoryState = [=] {
+        const bool enabled = s11Trajectory->isChecked() || s22Trajectory->isChecked();
+        trajectoryStart->setEnabled(enabled);
+        trajectoryStop->setEnabled(enabled);
+        trajectoryPoints->setEnabled(enabled);
+        trajectoryLog->setEnabled(enabled);
+    };
+    QObject::connect(s11Trajectory, &QCheckBox::toggled, &dialog, trajectoryState);
+    QObject::connect(s22Trajectory, &QCheckBox::toggled, &dialog, trajectoryState);
+    trajectoryState();
     auto* box = buttons(dialog, layout);
     auto result = original;
     QObject::connect(box, &QDialogButtonBox::accepted, &dialog, [&] {
@@ -493,6 +555,20 @@ std::optional<rf::Document> editSettings(QWidget* parent, const rf::Document& or
         result.goalOhms = {goalR->value(), goalX->value()};
         result.tunePercent = step->value();
         for (std::size_t i = 0; i < 3; ++i) result.frequencyPresets[i] = presets[i]->value();
+        result.stabilityGmax = stabilityGmax->isChecked();
+        result.stabilityK = stabilityK->isChecked();
+        result.stabilityB1 = stabilityB1->isChecked();
+        result.s11Trajectory = s11Trajectory->isChecked();
+        result.s22Trajectory = s22Trajectory->isChecked();
+        result.trajectoryStartMHz = trajectoryStart->value();
+        result.trajectoryStopMHz = trajectoryStop->value();
+        result.trajectoryPoints = trajectoryPoints->value();
+        result.trajectoryLogarithmic = trajectoryLog->isChecked();
+        result.stabilitySourceCircle = stabilitySourceCircle->isChecked();
+        result.stabilityLoadCircle = stabilityLoadCircle->isChecked();
+        result.stabilityUnstableShade = stabilityUnstableShade->isChecked();
+        result.referenceOverlayVisible =
+            result.referenceOverlay.has_value() && referenceOverlay->isChecked();
         try {
             rf::validate(result);
             dialog.accept();

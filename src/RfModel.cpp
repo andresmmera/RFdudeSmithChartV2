@@ -227,6 +227,18 @@ void validate(const Document& d)
         throw std::invalid_argument("Tuning step must be greater than 0 and less than 100 percent.");
     for (const double preset : d.frequencyPresets)
         positive(preset, "Frequency preset");
+    if (!std::isfinite(d.magnitudeFloorDb) || d.magnitudeFloorDb > 0 || d.magnitudeFloorDb < -300)
+        throw std::invalid_argument("Magnitude floor must be between -300 dB and 0 dB.");
+    if (!std::isfinite(d.magnitudeCeilingDb) || d.magnitudeCeilingDb < 0 || d.magnitudeCeilingDb > 300)
+        throw std::invalid_argument("Magnitude ceiling must be between 0 dB and 300 dB.");
+    if (!d.magnitudeAutoScale && d.magnitudeCeilingDb <= d.magnitudeFloorDb)
+        throw std::invalid_argument("Magnitude ceiling must exceed the magnitude floor.");
+    positive(d.trajectoryStartMHz, "Trajectory start");
+    positive(d.trajectoryStopMHz, "Trajectory stop");
+    if (d.trajectoryStopMHz <= d.trajectoryStartMHz)
+        throw std::invalid_argument("Trajectory stop must exceed start.");
+    if (d.trajectoryPoints < 2 || d.trajectoryPoints > 2001)
+        throw std::invalid_argument("Trajectory sweep must contain between 2 and 2001 points.");
     if (d.components.size() > 1000)
         throw std::invalid_argument("A network may contain at most 1000 components.");
     if (d.selected < -1 || d.selected >= static_cast<int>(d.components.size())
@@ -238,6 +250,11 @@ void validate(const Document& d)
         validate(*d.measuredLoad);
         if (d.measuredLoad->ports != 1)
             throw std::invalid_argument("A measured load requires one-port data.");
+    }
+    if (d.referenceOverlay) {
+        validate(*d.referenceOverlay);
+        if (d.referenceOverlay->ports != 1 && d.referenceOverlay->ports != 2)
+            throw std::invalid_argument("A reference overlay requires one-port or two-port data.");
     }
     const auto range = measuredFrequencyRange(d);
     if (d.frequencyMHz < range.first || d.frequencyMHz > range.second)

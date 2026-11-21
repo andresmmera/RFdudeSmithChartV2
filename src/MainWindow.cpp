@@ -148,6 +148,8 @@ void MainWindow::buildActions()
     action(file, tr("&Open / import..."), QKeySequence::Open, "open", [this] { chooseOpen(); });
     action(file, tr("Open examples..."), {}, "openExamples", [this] { chooseExample(); });
     action(file, tr("Import Touchstone..."), {}, "importTouchstone", [this] { chooseTouchstone(); });
+    action(file, tr("Import reference Touchstone overlay..."), {}, "importReferenceOverlay",
+           [this] { chooseReferenceOverlay(); });
     action(file, tr("&Save"), QKeySequence::Save, "save", [this] { chooseSave(); });
     action(file, tr("Save &as..."), QKeySequence::SaveAs, "saveAs", [this] { chooseSave(true); });
     file->addSeparator();
@@ -196,6 +198,8 @@ void MainWindow::buildActions()
     action(network, tr("Use constant starting load"), {}, "clearMeasuredLoad", [this] {
         change([](rf::Document& d) { d.measuredLoad.reset(); });
     });
+    action(network, tr("Clear reference Touchstone overlay"), {}, "clearReferenceOverlay",
+           [this] { clearReferenceOverlay(); });
     for (const auto& entry : std::vector<std::pair<rf::Kind, QString>>{
             {rf::Kind::Capacitor, "C"}, {rf::Kind::Inductor, "L"}, {rf::Kind::Resistor, "R"},
             {rf::Kind::Line, "T"}, {rf::Kind::SeriesRlc, "X"},
@@ -225,6 +229,39 @@ void MainWindow::buildActions()
         a->setCheckable(true);
         displayActions_.push_back(a);
     }
+    s11TrajectoryAction_ = action(view, tr("S11 frequency trajectory"), {},
+        "s11Trajectory", [this] {
+            change([](rf::Document& d) { d.s11Trajectory = !d.s11Trajectory; });
+        });
+    s11TrajectoryAction_->setCheckable(true);
+    s22TrajectoryAction_ = action(view, tr("S22 frequency trajectory"), {},
+        "s22Trajectory", [this] {
+            change([](rf::Document& d) { d.s22Trajectory = !d.s22Trajectory; });
+        });
+    s22TrajectoryAction_->setCheckable(true);
+    stabilitySourceCircleAction_ = action(view, tr("Source stability circle"), {},
+        "stabilitySourceCircle", [this] {
+            change([](rf::Document& d) { d.stabilitySourceCircle = !d.stabilitySourceCircle; });
+        });
+    stabilitySourceCircleAction_->setCheckable(true);
+    stabilityLoadCircleAction_ = action(view, tr("Load stability circle"), {},
+        "stabilityLoadCircle", [this] {
+            change([](rf::Document& d) { d.stabilityLoadCircle = !d.stabilityLoadCircle; });
+        });
+    stabilityLoadCircleAction_->setCheckable(true);
+    stabilityUnstableShadeAction_ = action(view, tr("Shade unstable stability circles"), {},
+        "stabilityUnstableShade", [this] {
+            change([](rf::Document& d) { d.stabilityUnstableShade = !d.stabilityUnstableShade; });
+        });
+    stabilityUnstableShadeAction_->setCheckable(true);
+    referenceOverlayAction_ = action(view, tr("Reference Touchstone overlay"), {},
+        "referenceOverlay", [this] {
+            change([](rf::Document& d) {
+                d.referenceOverlayVisible =
+                    d.referenceOverlay.has_value() && !d.referenceOverlayVisible;
+            });
+        });
+    referenceOverlayAction_->setCheckable(true);
     action(network, tr("Frequency..."), QKeySequence("F"), "frequency", [this] { settings("frequency"); });
     action(network, tr("Reference Z0..."), QKeySequence("Z"), "reference", [this] { settings("z0"); });
     action(network, tr("Tuning percentage..."), QKeySequence("P"), "tuneStep", [this] { settings("step"); });
@@ -354,6 +391,13 @@ void MainWindow::refresh()
     const std::array<bool, 5> flags{document_.admittance, document_.polar, document_.qCurves,
                                   document_.markers, document_.vswrCircle};
     for (std::size_t i = 0; i < flags.size(); ++i) displayActions_[i]->setChecked(flags[i]);
+    s11TrajectoryAction_->setChecked(document_.s11Trajectory);
+    s22TrajectoryAction_->setChecked(document_.s22Trajectory);
+    stabilitySourceCircleAction_->setChecked(document_.stabilitySourceCircle);
+    stabilityLoadCircleAction_->setChecked(document_.stabilityLoadCircle);
+    stabilityUnstableShadeAction_->setChecked(document_.stabilityUnstableShade);
+    referenceOverlayAction_->setChecked(document_.referenceOverlay.has_value()
+                                       && document_.referenceOverlayVisible);
 }
 
 void MainWindow::ensureFrequencyResponse()
@@ -376,6 +420,21 @@ void MainWindow::ensureFrequencyResponse()
         connect(response_, &FrequencyResponseDialog::frequencySelected, this, [this](double frequency) {
             change([frequency](rf::Document& d) { d.frequencyMHz = frequency; });
         });
+        connect(response_, &FrequencyResponseDialog::frequencyTuneRequested, this, [this](int direction) {
+            tune(direction, Qt::ControlModifier);
+        });
+        connect(response_, &FrequencyResponseDialog::displayOptionsChanged, this,
+                [this](bool gmax, bool k, bool b1, bool automaticScale,
+                       double ceilingDb, double floorDb) {
+                    change([=](rf::Document& d) {
+                        d.stabilityGmax = gmax;
+                        d.stabilityK = k;
+                        d.stabilityB1 = b1;
+                        d.magnitudeAutoScale = automaticScale;
+                        d.magnitudeCeilingDb = ceilingDb;
+                        d.magnitudeFloorDb = floorDb;
+                    });
+                });
     } else {
         response_->setNetwork(document_);
     }
@@ -421,6 +480,47 @@ void MainWindow::chooseTouchstone()
     const auto path = QFileDialog::getOpenFileName(this, tr("Import Touchstone block or load"), {},
         tr("Touchstone 1.x (*.s1p *.s2p *.S1P *.S2P);;All files (*)"));
     if (!path.isEmpty()) importTouchstone(path);
+}
+
+void MainWindow::chooseReferenceOverlay()
+{
+    const auto path = QFileDialog::getOpenFileName(this, tr("Import reference Touchstone overlay"), {},
+        tr("Touchstone 1.x (*.s1p *.s2p *.S1P *.S2P);;All files (*)"));
+    if (!path.isEmpty()) importReferenceOverlay(path);
+}
+
+bool MainWindow::importReferenceOverlay(const QString& path)
+{
+    try {
+        const auto suffix = QFileInfo(path).suffix().toLower();
+        if (suffix != "s1p" && suffix != "s2p")
+            throw std::invalid_argument("Choose a Touchstone .s1p or .s2p reference file.");
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly))
+            throw std::runtime_error(file.errorString().toStdString());
+        if (file.size() > 16 * 1024 * 1024)
+            throw std::invalid_argument("Touchstone files must be at most 16 MiB.");
+        const auto bytes = file.readAll();
+        if (file.error() != QFileDevice::NoError)
+            throw std::runtime_error(file.errorString().toStdString());
+        const auto data = rf::parseTouchstone(std::string_view(bytes.constData(), bytes.size()),
+            suffix == "s1p" ? 1 : 2, QFileInfo(path).fileName().toStdString());
+        return change([&](rf::Document& d) {
+            d.referenceOverlay = data;
+            d.referenceOverlayVisible = true;
+        });
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, tr("Cannot import reference overlay"), e.what());
+        return false;
+    }
+}
+
+void MainWindow::clearReferenceOverlay()
+{
+    change([](rf::Document& d) {
+        d.referenceOverlay.reset();
+        d.referenceOverlayVisible = false;
+    });
 }
 
 bool MainWindow::importTouchstone(const QString& path)
@@ -498,6 +598,8 @@ void MainWindow::tune(int direction, Qt::KeyboardModifiers modifiers)
         const double multiplier = 1 + direction * d.tunePercent / 100;
         if (modifiers.testFlag(Qt::ControlModifier)) d.frequencyMHz *= multiplier;
         else if (modifiers.testFlag(Qt::ShiftModifier)) d.referenceOhms *= multiplier;
+        else if (response_ && response_->isVisible() && response_->plotHasFocus())
+            d.frequencyMHz *= multiplier;
         else if (d.selected >= 0)
             rf::tune(d.components[static_cast<std::size_t>(d.selected)], d.tunePercent, direction > 0);
     });

@@ -11,6 +11,7 @@ class FrequencySpinBox;
 class QComboBox;
 class QLabel;
 class ResponsePlotWidget;
+class QCheckBox;
 
 class FrequencyResponseDialog final : public QDialog
 {
@@ -25,9 +26,13 @@ public:
     void setTerminated(bool terminated);
     void setNetwork(const rf::Document& document);
     QImage responseImage();
+    bool plotHasFocus() const;
 
 signals:
     void frequencySelected(double frequencyMHz);
+    void displayOptionsChanged(bool gmax, bool k, bool b1,
+                               bool automaticScale, double ceilingDb, double floorDb);
+    void frequencyTuneRequested(int direction);
 
 private:
     void applySweep();
@@ -35,7 +40,9 @@ private:
     void calculate();
     void updateMarker();
     void exportPlot();
+    void exportTouchstone();
     void constrainSweep();
+    void applyDisplayOptions();
     rf::Document document_;
     rf::Sweep sweep_;
     FrequencySpinBox* start_;
@@ -44,6 +51,12 @@ private:
     QSpinBox* points_;
     QComboBox* scale_;
     QComboBox* mode_;
+    QCheckBox* stabilityGmax_;
+    QCheckBox* stabilityK_;
+    QCheckBox* stabilityB1_;
+    QCheckBox* magnitudeAuto_;
+    QComboBox* magnitudeCeiling_;
+    QComboBox* magnitudeFloor_;
     QLabel* status_;
     QLabel* marker_;
     ResponsePlotWidget* plot_;

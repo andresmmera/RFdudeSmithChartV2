@@ -36,6 +36,29 @@ class TouchstoneTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void exportFormat()
+    {
+        const std::vector<rf::ResponseSample> samples{
+            {100, {rf::Complex(.1, .2), rf::Complex(.3, -.1),
+                   rf::Complex(.4, .05), rf::Complex(.5, -.2)}},
+            {200, {rf::Complex(.2, -.1), rf::Complex(.6, .2),
+                   rf::Complex(.7, -.05), rf::Complex(.1, .3)}}
+        };
+        const auto s2p = rf::formatTouchstone(samples, 2, 50);
+        QVERIFY(s2p.find("# MHz S RI R 50") != std::string::npos);
+        QVERIFY(s2p.find("100 ") != std::string::npos);
+        const auto parsed = rf::parseTouchstone(s2p, 2, "exported.s2p");
+        QCOMPARE(parsed.referenceOhms, 50.0);
+        QCOMPARE(parsed.samples.size(), std::size_t(2));
+        QVERIFY(std::abs(parsed.samples.front().s.s11 - rf::Complex(.1, .2)) < 1e-12);
+        QVERIFY(std::abs(parsed.samples.front().s.s21 - rf::Complex(.3, -.1)) < 1e-12);
+        const auto s1p = rf::formatTouchstone(samples, 1, 75);
+        const auto onePort = rf::parseTouchstone(s1p, 1, "exported.s1p");
+        QCOMPARE(onePort.referenceOhms, 75.0);
+        QCOMPARE(onePort.samples.size(), std::size_t(2));
+        QVERIFY(std::abs(onePort.samples.front().s.s11 - rf::Complex(.1, .2)) < 1e-12);
+    }
+
     void formatsAndUnits()
     {
         const auto ri = rf::parseTouchstone("! comment\n# mHz s rI r 75 ! options\n"

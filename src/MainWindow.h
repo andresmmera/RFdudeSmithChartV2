@@ -26,6 +26,7 @@ public:
     bool isModified() const;
     QImage chartImage();
     bool importTouchstone(const QString& path);
+    bool importReferenceOverlay(const QString& path);
     // Docks the frequency response beside the Smith chart (widening the window if needed).
     void showResponsePanel();
 
@@ -54,6 +55,8 @@ private:
     void exportLtspice();
     void showFrequencyResponse();
     void chooseTouchstone();
+    void chooseReferenceOverlay();
+    void clearReferenceOverlay();
     void ensureFrequencyResponse();
 
     rf::Document document_;
@@ -75,5 +78,11 @@ private:
     QAction* redoAction_ = nullptr;
     QAction* editAction_ = nullptr;
     QAction* deleteAction_ = nullptr;
+    QAction* referenceOverlayAction_ = nullptr;
+    QAction* stabilitySourceCircleAction_ = nullptr;
+    QAction* stabilityLoadCircleAction_ = nullptr;
+    QAction* stabilityUnstableShadeAction_ = nullptr;
+    QAction* s11TrajectoryAction_ = nullptr;
+    QAction* s22TrajectoryAction_ = nullptr;
     std::vector<QAction*> displayActions_;
 };
