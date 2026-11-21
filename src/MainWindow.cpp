@@ -287,6 +287,15 @@ void MainWindow::buildActions()
     action(network, tr("Frequency..."), QKeySequence("F"), "frequency", [this] { settings("frequency"); });
     action(network, tr("Reference Z0..."), QKeySequence("Z"), "reference", [this] { settings("z0"); });
     action(network, tr("Tuning percentage..."), QKeySequence("P"), "tuneStep", [this] { settings("step"); });
+    action(network, tr("Previous component"), QKeySequence(Qt::Key_Left), "previous", [this] {
+        if (!document_.components.empty())
+            select((document_.selected + static_cast<int>(document_.components.size()) - 1)
+                % static_cast<int>(document_.components.size()));
+    });
+    action(network, tr("Next component"), QKeySequence(Qt::Key_Right), "next", [this] {
+        if (!document_.components.empty())
+            select((document_.selected + 1) % static_cast<int>(document_.components.size()));
+    });
     for (const bool increase : {true, false}) {
         for (const auto modifier : {Qt::NoModifier, Qt::ControlModifier, Qt::ShiftModifier}) {
             const int key = increase ? Qt::Key_Up : Qt::Key_Down;
