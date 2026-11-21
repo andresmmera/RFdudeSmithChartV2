@@ -95,7 +95,8 @@ void SmithChartWidget::setNetwork(const rf::Document& d, const rf::Evaluation& e
             for (const double frequency : simpleComponentFrequencyMHz_) {
                 const auto snapshot = rf::evaluateAtFrequency(document_, frequency);
                 for (std::size_t i = 0; i < snapshot.trajectories.size(); ++i)
-                    simpleComponentTrajectories_[i].push_back(snapshot.trajectories[i]);
+                    simpleComponentTrajectories_[i].push_back(
+                        snapshot.nodes[i + 1].reflection(document_.referenceOhms));
             }
             if (document_.s11Trajectory || document_.s22Trajectory) {
                 for (const double frequency : simpleComponentFrequencyMHz_) {
@@ -231,24 +232,31 @@ void SmithChartWidget::paintEvent(QPaintEvent*)
     if (document_.simpleTrajectories) {
         for (std::size_t i = 0; i < simpleComponentTrajectories_.size(); ++i) {
             const bool selected = static_cast<int>(i) == document_.selected;
-            for (std::size_t j = 0; j < simpleComponentTrajectories_[i].size(); ++j) {
-                const auto& samples = simpleComponentTrajectories_[i][j];
-                if (samples.empty()) continue;
-                QPainterPath path;
-                path.moveTo(pointForReflection(samples.front()));
-                for (const auto gamma : samples) path.lineTo(pointForReflection(gamma));
+            const auto& samples = simpleComponentTrajectories_[i];
+            if (samples.empty()) continue;
+            QColor color = selected ? QColor("#1f59b6") : QColor("#303030");
+            p.setPen(QPen(color, selected ? 2.6 : 1.8, Qt::SolidLine));
+            p.setBrush(Qt::NoBrush);
+            for (std::size_t j = 1; j < samples.size(); ++j) {
+                const double previousFrequency = j - 1 < simpleComponentFrequencyMHz_.size()
+                    ? simpleComponentFrequencyMHz_[j - 1] : document_.frequencyMHz;
                 const double frequency = j < simpleComponentFrequencyMHz_.size()
                     ? simpleComponentFrequencyMHz_[j] : document_.frequencyMHz;
-                const bool current = std::abs(frequency - document_.frequencyMHz) < 1e-9;
-                Qt::PenStyle style = current ? Qt::SolidLine
-                                             : frequency < document_.frequencyMHz
-                                                ? Qt::DashLine : Qt::DotLine;
-                p.setPen(QPen(selected ? QColor("#1f59b6") : QColor("#303030"),
-                              current && selected ? 3 : 1.6, style));
-                p.drawPath(path);
-                p.setBrush(selected ? QColor("#1f59b6") : QColor("#303030"));
-                p.drawEllipse(pointForReflection(samples.front()), 2.5, 2.5);
-                p.drawEllipse(pointForReflection(samples.back()), 2.5, 2.5);
+                const Qt::PenStyle style =
+                    previousFrequency < document_.frequencyMHz
+                        ? Qt::DashLine
+                        : frequency > document_.frequencyMHz
+                            ? Qt::DotLine : Qt::SolidLine;
+                p.setPen(QPen(color, selected ? 2.6 : 1.8, style));
+                p.drawLine(pointForReflection(samples[j - 1]),
+                           pointForReflection(samples[j]));
+            }
+            p.setBrush(color);
+            for (std::size_t j = 0; j < samples.size(); ++j) {
+                const bool current = j < simpleComponentFrequencyMHz_.size()
+                    && std::abs(simpleComponentFrequencyMHz_[j] - document_.frequencyMHz) < 1e-9;
+                const double diameter = current ? 5.5 : 3.5;
+                p.drawEllipse(pointForReflection(samples[j]), diameter, diameter);
             }
         }
     } else {
