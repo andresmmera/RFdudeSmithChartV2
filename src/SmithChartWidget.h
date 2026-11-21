@@ -41,7 +41,7 @@ private:
     std::vector<rf::Complex> referenceS11_;
     std::vector<rf::Complex> referenceS22_;
     std::vector<double> simpleComponentFrequencyMHz_;
-    std::vector<std::vector<rf::Complex>> simpleComponentTrajectories_;
+    std::vector<std::vector<std::vector<rf::Complex>>> simpleComponentTrajectories_;
     double trajectoryStartMHz_ = 100;
     double trajectoryStopMHz_ = 2000;
     int trajectoryPoints_ = 401;
