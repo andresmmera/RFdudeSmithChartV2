@@ -290,6 +290,11 @@ private slots:
 
     void frequencyResponseControlsAndMarker()
     {
+        const bool nativeDialogsDisabled = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        const auto restoreDialogs = qScopeGuard([=] {
+            QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, nativeDialogsDisabled);
+        });
         MainWindow window;
         rf::FilterSpecification specification;
         specification.order = 5;
