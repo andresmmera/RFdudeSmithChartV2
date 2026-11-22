@@ -450,6 +450,17 @@ private slots:
         d.goalOhms = {75, 20};
         d.frequencyPresets = {400, 500, 600};
         QVERIFY(documents::fromJson(documents::toJson(d)) == d);
+        for (const auto kind : {rf::Kind::Resistor, rf::Kind::Capacitor, rf::Kind::Inductor,
+                                rf::Kind::Line, rf::Kind::ParallelRlc, rf::Kind::SeriesRlc,
+                                rf::Kind::Transformer, rf::Kind::Coax, rf::Kind::Microstrip}) {
+            const auto component = rf::defaultComponent(kind, 915, 50);
+            QVERIFY(documents::componentFromJson(documents::componentToJson(component)) == component);
+        }
+        auto measured = rf::defaultComponent(rf::Kind::Measured, 915, 50);
+        measured.measured = rf::parseTouchstone(
+            "# MHz S RI R 50\n100 0.1 0.2 0.8 -0.1 0.7 0.2 0.2 -0.3\n",
+            2, "clipboard.s2p");
+        QVERIFY(documents::componentFromJson(documents::componentToJson(measured)) == measured);
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         const auto path = directory.filePath("network.rfs.json");

@@ -18,6 +18,7 @@ public:
 signals:
     void componentSelected(int index);
     void editRequested();
+    void contextMenuRequested(int index, QPoint globalPosition);
 
     /// Emitted when the source symbol (left end of the schematic) is clicked.
     void sourceClicked();
@@ -27,6 +28,7 @@ signals:
 protected:
     bool event(QEvent* event) override;
     void drawBackground(QPainter* painter, const QRectF& rect) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;

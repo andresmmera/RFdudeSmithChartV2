@@ -34,6 +34,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void buildActions();
@@ -52,6 +53,12 @@ private:
     void addComponent(rf::Kind kind, rf::Connection connection);
     void editSelected();
     void deleteSelected();
+    void cutSelected();
+    void copySelected();
+    void pasteComponent();
+    void insertComponentRight();
+    std::optional<rf::Component> readClipboardComponent();
+    void writeClipboardComponent(const rf::Component& component);
     void select(int index);
     void tune(int direction, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
     void settings(const QString& focus = {});
@@ -91,6 +98,12 @@ private:
     QAction* redoAction_ = nullptr;
     QAction* editAction_ = nullptr;
     QAction* deleteAction_ = nullptr;
+    QAction* cutAction_ = nullptr;
+    QAction* copyAction_ = nullptr;
+    QAction* pasteAction_ = nullptr;
+    QAction* insertAction_ = nullptr;
+    std::optional<rf::Component> clipboardComponent_;
+    QString clipboardPlainText_;
     QAction* referenceOverlayAction_ = nullptr;
     QAction* stabilitySourceCircleAction_ = nullptr;
     QAction* stabilityLoadCircleAction_ = nullptr;

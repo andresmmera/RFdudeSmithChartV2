@@ -8,6 +8,7 @@
 #include <QGraphicsScene>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QContextMenuEvent>
 #include <QPainter>
 #include <QPainterPath>
 
@@ -215,14 +216,30 @@ bool SchematicWidget::event(QEvent* event)
 {
     // Application editing shortcuts take precedence over the view's arrow-key scrolling.
     if (event->type() == QEvent::ShortcutOverride) {
-        const auto key = static_cast<QKeyEvent*>(event)->key();
+        const auto* keyEvent = static_cast<QKeyEvent*>(event);
+        const auto key = keyEvent->key();
+        const bool clipboardShortcut = (keyEvent->modifiers().testFlag(Qt::ControlModifier)
+                                        || keyEvent->modifiers().testFlag(Qt::MetaModifier))
+            && (key == Qt::Key_I || key == Qt::Key_C
+                || key == Qt::Key_X || key == Qt::Key_V);
         if (key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Up
-            || key == Qt::Key_Down || key == Qt::Key_Delete) {
+            || key == Qt::Key_Down || key == Qt::Key_Delete || clipboardShortcut) {
             event->ignore();
             return true;
         }
     }
     return QGraphicsView::event(event);
+}
+
+void SchematicWidget::contextMenuEvent(QContextMenuEvent* event)
+{
+    const int index = componentAt(viewport()->mapFromGlobal(event->globalPos()));
+    if (index >= 0) {
+        event->accept();
+        emit contextMenuRequested(index, event->globalPos());
+    } else {
+        event->ignore();
+    }
 }
 
 void SchematicWidget::drawBackground(QPainter* painter, const QRectF& rect)
@@ -342,7 +359,10 @@ int SchematicWidget::componentAt(QPoint position) const
 void SchematicWidget::mousePressEvent(QMouseEvent* event) {
     const auto position = event->position().toPoint();
     const int index = componentAt(position);
-    if (event->button() == Qt::LeftButton && index >= 0) {
+    if (event->button() == Qt::RightButton && index >= 0) {
+        emit contextMenuRequested(index, event->globalPosition().toPoint());
+        event->accept();
+    } else if (event->button() == Qt::LeftButton && index >= 0) {
         selectingFromMouse_ = true;
         emit componentSelected(index);
         selectingFromMouse_ = false;

@@ -38,6 +38,8 @@ set(ui_interaction_cases
     setupAndPresets
     failedIoPreservesNetwork
     cancelEditorAndClose
+    componentClipboardAndInsertion
+    componentShortcutContract
     renderChart
 )
 set(ui_interaction_tests)

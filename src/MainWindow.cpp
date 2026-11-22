@@ -12,7 +12,9 @@
 #include "UpdateCheck.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QCloseEvent>
+#include <QClipboard>
 #include <QCoreApplication>
 #include <QDockWidget>
 #include <QDir>
@@ -21,8 +23,12 @@
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QLabel>
+#include <QKeyEvent>
 #include <QMenuBar>
+#include <QMenu>
 #include <QMessageBox>
+#include <QMimeData>
+#include <QGuiApplication>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -54,6 +60,8 @@ QString number(double value)
 {
     return std::isfinite(value) ? QString::number(value, 'g', 7) : QStringLiteral("infinite");
 }
+
+constexpr auto componentMimeType = "application/vnd.rfdude.component+json";
 }
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
@@ -99,12 +107,34 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
     metrics_->setWordWrap(true);
     metrics_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(metrics_);
-    auto* hints = new QLabel(tr("C/L/R/T/X/I/K/B: add  |  Left/Right: select  |  Up/Down or wheel: tune  |  "
-        "Ctrl+tune: frequency  |  Shift+tune: Z0  |  E: edit  |  S: setup"));
+    auto* hints = new QLabel(tr("C/L/R/T/X/I/K/B: add  |  Ctrl+I: insert right  |  Ctrl+C/X/V: copy/cut/paste  |  "
+        "Left/Right: select  |  Up/Down or wheel: tune  |  Ctrl+tune: frequency  |  Shift+tune: Z0  |  E: edit  |  S: setup"));
     hints->setWordWrap(true);
     layout->addWidget(hints);
     setCentralWidget(central);
     buildActions();
+    table_->installEventFilter(this);
+    table_->viewport()->installEventFilter(this);
+    chart_->installEventFilter(this);
+    schematic_->installEventFilter(this);
+    schematic_->viewport()->installEventFilter(this);
+    table_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(table_, &QWidget::customContextMenuRequested, this, [this](const QPoint& position) {
+        const int row = table_->rowAt(position.y());
+        if (row < 0 || row >= table_->rowCount()) return;
+        table_->selectRow(row);
+        select(row);
+        QMenu menu(table_);
+        menu.addAction(insertAction_);
+        menu.addSeparator();
+        menu.addAction(cutAction_);
+        menu.addAction(copyAction_);
+        menu.addAction(pasteAction_);
+        menu.addSeparator();
+        menu.addAction(editAction_);
+        menu.addAction(deleteAction_);
+        menu.exec(table_->viewport()->mapToGlobal(position));
+    });
     connect(table_, &QTableWidget::currentCellChanged, this, [this](int row) {
         if (row >= 0) select(row);
     });
@@ -114,6 +144,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
 
     connect(schematic_, &SchematicWidget::componentSelected, this, &MainWindow::select);
     connect(schematic_, &SchematicWidget::editRequested, this, &MainWindow::editSelected);
+    connect(schematic_, &SchematicWidget::contextMenuRequested, this,
+            [this](int index, QPoint globalPosition) {
+        if (index < 0 || index >= static_cast<int>(document_.components.size())) return;
+        select(index);
+        QMenu menu(schematic_);
+        menu.addAction(insertAction_);
+        menu.addSeparator();
+        menu.addAction(cutAction_);
+        menu.addAction(copyAction_);
+        menu.addAction(pasteAction_);
+        menu.addSeparator();
+        menu.addAction(editAction_);
+        menu.addAction(deleteAction_);
+        menu.exec(globalPosition);
+    });
     // Clicking an end of the schematic opens the setup with the matching impedance focused.
     connect(schematic_, &SchematicWidget::sourceClicked, this, [this] { settings("goalR"); });
     connect(schematic_, &SchematicWidget::loadClicked, this, [this] { settings("startR"); });
@@ -251,6 +296,16 @@ void MainWindow::buildActions()
     action(file, tr("&Quit"), QKeySequence::Quit, "quit", [this] { close(); });
     undoAction_ = action(edit, tr("&Undo"), QKeySequence::Undo, "undo", [this] { undo(); });
     redoAction_ = action(edit, tr("&Redo"), QKeySequence::Redo, "redo", [this] { redo(); });
+    edit->addSeparator();
+    cutAction_ = action(edit, tr("Cu&t component"), QKeySequence::Cut, "cutComponent",
+                        [this] { cutSelected(); });
+    copyAction_ = action(edit, tr("&Copy component"), QKeySequence::Copy, "copyComponent",
+                         [this] { copySelected(); });
+    pasteAction_ = action(edit, tr("&Paste component"), QKeySequence::Paste, "pasteComponent",
+                          [this] { pasteComponent(); });
+    insertAction_ = action(edit, tr("Insert component to the &right..."), QKeySequence("Ctrl+I"),
+                           "insertComponent", [this] { insertComponentRight(); });
+    edit->addSeparator();
     editAction_ = action(edit, tr("&Edit component..."), QKeySequence("E"), "editComponent", [this] { editSelected(); });
     deleteAction_ = action(edit, tr("&Delete component"), QKeySequence(Qt::Key_Delete), "deleteComponent", [this] { deleteSelected(); });
     auto* setup = action(network, tr("&Setup..."), QKeySequence("S"), "setup", [this] { settings("startR"); });
@@ -312,8 +367,16 @@ void MainWindow::buildActions()
     connect(palette, &ComponentPalette::addRequested, this,
             [this](rf::Kind kind, rf::Connection connection) { addComponent(kind, connection); });
 
+    describe(insertAction_, tr("Insert right"), tr("Insert a new component to the right (Ctrl+I)"));
+    describe(cutAction_, tr("Cut"), tr("Cut selected component (Ctrl+X)"));
+    describe(copyAction_, tr("Copy"), tr("Copy selected component (Ctrl+C)"));
+    describe(pasteAction_, tr("Paste"), tr("Paste component to the right (Ctrl+V)"));
     describe(editAction_, tr("Edit"), tr("Edit selected component (E)"));
     describe(deleteAction_, tr("Delete"), tr("Delete selected component (Del)"));
+    selectedBar->addAction(insertAction_);
+    selectedBar->addAction(cutAction_);
+    selectedBar->addAction(copyAction_);
+    selectedBar->addAction(pasteAction_);
     selectedBar->addAction(editAction_);
     selectedBar->addAction(deleteAction_);
 
@@ -505,6 +568,11 @@ void MainWindow::refresh()
     redoAction_->setEnabled(!redo_.empty());
     editAction_->setEnabled(document_.selected >= 0);
     deleteAction_->setEnabled(document_.selected >= 0);
+    cutAction_->setEnabled(document_.selected >= 0);
+    copyAction_->setEnabled(document_.selected >= 0);
+    pasteAction_->setEnabled(document_.components.size() < 1000
+                              && readClipboardComponent().has_value());
+    insertAction_->setEnabled(document_.components.size() < 1000);
     const std::array<bool, 5> flags{document_.admittance, document_.polar, document_.qCurves,
                                   document_.markers, document_.vswrCircle};
     for (std::size_t i = 0; i < flags.size(); ++i) displayActions_[i]->setChecked(flags[i]);
@@ -747,6 +815,105 @@ void MainWindow::deleteSelected()
         d.components.erase(d.components.begin() + d.selected);
         d.selected = d.components.empty() ? -1 : std::max(0, d.selected - 1);
     });
+}
+
+void MainWindow::writeClipboardComponent(const rf::Component& component)
+{
+    clipboardComponent_ = component;
+    clipboardPlainText_ = tr("RFdude component: %1")
+        .arg(componentDescription(component));
+    auto* mime = new QMimeData;
+    mime->setText(clipboardPlainText_);
+    mime->setData(QString::fromLatin1(componentMimeType),
+                  documents::componentToJson(component));
+    QGuiApplication::clipboard()->setMimeData(mime);
+}
+
+std::optional<rf::Component> MainWindow::readClipboardComponent()
+{
+    const auto* mime = QGuiApplication::clipboard()->mimeData();
+    if (!mime) return std::nullopt;
+    const auto format = QString::fromLatin1(componentMimeType);
+    if (mime->hasFormat(format)) {
+        try {
+            clipboardComponent_ = documents::componentFromJson(mime->data(format));
+            clipboardPlainText_ = mime->text();
+            return clipboardComponent_;
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
+    }
+    if (clipboardComponent_ && mime->text() == clipboardPlainText_)
+        return clipboardComponent_;
+    return std::nullopt;
+}
+
+void MainWindow::copySelected()
+{
+    if (document_.selected < 0
+        || document_.selected >= static_cast<int>(document_.components.size()))
+        return;
+    writeClipboardComponent(document_.components[static_cast<std::size_t>(document_.selected)]);
+    statusBar()->showMessage(tr("Copied selected component."));
+}
+
+void MainWindow::cutSelected()
+{
+    if (document_.selected < 0
+        || document_.selected >= static_cast<int>(document_.components.size()))
+        return;
+    writeClipboardComponent(document_.components[static_cast<std::size_t>(document_.selected)]);
+    change([](rf::Document& d) {
+        d.components.erase(d.components.begin() + d.selected);
+        d.selected = d.components.empty() ? -1
+                                         : std::min(d.selected,
+                                                    static_cast<int>(d.components.size()) - 1);
+    });
+    statusBar()->showMessage(tr("Cut selected component."));
+}
+
+void MainWindow::pasteComponent()
+{
+    if (document_.components.size() >= 1000) {
+        statusBar()->showMessage(tr("A network may contain at most 1000 components."));
+        return;
+    }
+    const auto component = readClipboardComponent();
+    if (!component) return;
+    const bool changed = change([&](rf::Document& d) {
+        const int index = d.selected >= 0 ? d.selected : 0;
+        d.components.insert(d.components.begin() + index, *component);
+        d.selected = index;
+    });
+    if (changed)
+        statusBar()->showMessage(tr("Pasted component to the right of the selection."));
+}
+
+void MainWindow::insertComponentRight()
+{
+    if (document_.components.size() >= 1000) {
+        statusBar()->showMessage(tr("A network may contain at most 1000 components."));
+        return;
+    }
+    rf::Kind kind = rf::Kind::Capacitor;
+    if (document_.selected >= 0
+        && document_.selected < static_cast<int>(document_.components.size())) {
+        const auto selectedKind =
+            document_.components[static_cast<std::size_t>(document_.selected)].kind;
+        if (selectedKind != rf::Kind::Measured)
+            kind = selectedKind;
+    }
+    const auto value = editComponent(
+        this, rf::defaultComponent(kind, document_.frequencyMHz, document_.referenceOhms));
+    if (value) {
+        const bool changed = change([&](rf::Document& d) {
+            const int index = d.selected >= 0 ? d.selected : 0;
+            d.components.insert(d.components.begin() + index, *value);
+            d.selected = index;
+        });
+        if (changed)
+            statusBar()->showMessage(tr("Inserted component to the right of the selection."));
+    }
 }
 
 void MainWindow::select(int index)
@@ -997,6 +1164,40 @@ QImage MainWindow::chartImage()
     painter.translate(margin, chart_->height() + schematicHeight + response.height() + 4 * margin);
     description.drawContents(&painter);
     return image;
+}
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* event)
+{
+    if (event->type() == QEvent::KeyPress) {
+        const bool componentView = watched == table_ || watched == table_->viewport()
+            || watched == chart_ || watched == schematic_ || watched == schematic_->viewport();
+        if (componentView && !QApplication::activeModalWidget()) {
+            const auto* keyEvent = static_cast<const QKeyEvent*>(event);
+            const bool primaryModifier = keyEvent->modifiers().testFlag(Qt::ControlModifier)
+                || keyEvent->modifiers().testFlag(Qt::MetaModifier);
+            if (primaryModifier
+                && !keyEvent->modifiers().testFlag(Qt::ShiftModifier)
+                && !keyEvent->modifiers().testFlag(Qt::AltModifier)) {
+                switch (keyEvent->key()) {
+                case Qt::Key_I:
+                    insertComponentRight();
+                    return true;
+                case Qt::Key_X:
+                    cutSelected();
+                    return true;
+                case Qt::Key_C:
+                    copySelected();
+                    return true;
+                case Qt::Key_V:
+                    pasteComponent();
+                    return true;
+                default:
+                    break;
+                }
+            }
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)

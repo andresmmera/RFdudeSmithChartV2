@@ -24,6 +24,8 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QMessageBox>
+#include <QMenu>
+#include <QContextMenuEvent>
 #include <QPainter>
 #include <QPushButton>
 #include <QScrollBar>
@@ -36,6 +38,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QtTest>
+#include <map>
 
 namespace {
 QAction* action(MainWindow& window, const char* name)
@@ -1513,6 +1516,141 @@ private slots:
         acceptEditor(window, 33);
         action(window, "editComponent")->trigger();
         QCOMPARE(window.document().components[0].capacitancePf, 33.0);
+    }
+
+    void componentClipboardAndInsertion()
+    {
+        MainWindow window;
+        present(window);
+        auto* chart = window.findChild<SmithChartWidget*>();
+        auto* table = window.findChild<QTableWidget*>();
+        auto* schematic = window.findChild<SchematicWidget*>();
+        QVERIFY(chart);
+        QVERIFY(table);
+        QVERIFY(schematic);
+
+        acceptEditor(window, 10);
+        QTest::keyClick(chart, Qt::Key_C);
+        present(window);
+        acceptEditor(window, 20, true);
+        QTest::keyClick(chart, Qt::Key_C);
+        present(window);
+        QCOMPARE(window.document().components.size(), std::size_t(2));
+
+        table->selectRow(0);
+        QTest::keyClick(table, Qt::Key_C, Qt::ControlModifier);
+        QTest::keyClick(table, Qt::Key_V, Qt::ControlModifier);
+        QCOMPARE(window.document().components.size(), std::size_t(3));
+        QCOMPARE(window.document().components[0].capacitancePf, 10.0);
+        QCOMPARE(window.document().components[1].capacitancePf, 10.0);
+        QCOMPARE(window.document().components[2].capacitancePf, 20.0);
+        QCOMPARE(window.document().selected, 0);
+
+        table->selectRow(1);
+        QTest::keyClick(table, Qt::Key_X, Qt::ControlModifier);
+        QCOMPARE(window.document().components.size(), std::size_t(2));
+        QCOMPARE(window.document().selected, 1);
+        QTest::keyClick(schematic, Qt::Key_V, Qt::ControlModifier);
+        QCOMPARE(window.document().components.size(), std::size_t(3));
+        QCOMPARE(window.document().components[1].capacitancePf, 10.0);
+        QCOMPARE(window.document().selected, 1);
+
+        table->selectRow(1);
+        QTimer::singleShot(0, &window, [&] {
+            auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            if (!dialog) qFatal("Expected component editor.");
+            auto* kind = dialog->findChild<QComboBox*>("componentKind");
+            auto* inductance = dialog->findChild<QDoubleSpinBox*>("inductance");
+            auto* box = dialog->findChild<QDialogButtonBox*>();
+            if (!kind || !inductance || !box) qFatal("Missing insert controls.");
+            kind->setCurrentIndex(kind->findData(int(rf::Kind::Inductor)));
+            inductance->setValue(42);
+            box->button(QDialogButtonBox::Ok)->click();
+        });
+        QTest::keyClick(table, Qt::Key_I, Qt::ControlModifier);
+        QCOMPARE(window.document().components.size(), std::size_t(4));
+        QCOMPARE(window.document().components[1].kind, rf::Kind::Inductor);
+        QCOMPARE(window.document().components[1].inductanceNh, 42.0);
+        QCOMPARE(window.document().selected, 1);
+
+        table->selectRow(2);
+        QTimer::singleShot(0, &window, [&] {
+            auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            if (!dialog) qFatal("Expected component editor.");
+            auto* kind = dialog->findChild<QComboBox*>("componentKind");
+            auto* resistance = dialog->findChild<QDoubleSpinBox*>("resistance");
+            auto* box = dialog->findChild<QDialogButtonBox*>();
+            if (!kind || !resistance || !box) qFatal("Missing insert controls.");
+            kind->setCurrentIndex(kind->findData(int(rf::Kind::Resistor)));
+            resistance->setValue(33);
+            box->button(QDialogButtonBox::Ok)->click();
+        });
+        schematic->setFocus();
+        QTest::keyClick(schematic, Qt::Key_I, Qt::ControlModifier);
+        QCOMPARE(window.document().components.size(), std::size_t(5));
+        QCOMPARE(window.document().components[2].kind, rf::Kind::Resistor);
+        QCOMPARE(window.document().components[2].resistance, 33.0);
+        QCOMPARE(window.document().selected, 2);
+
+        table->selectRow(2);
+        schematic->setFocus();
+        QTest::keyClick(schematic, Qt::Key_C, Qt::ControlModifier);
+        table->selectRow(4);
+        schematic->setFocus();
+        QTest::keyClick(schematic, Qt::Key_V, Qt::ControlModifier);
+        QCOMPARE(window.document().components.size(), std::size_t(6));
+        QCOMPARE(window.document().components[4].kind, rf::Kind::Resistor);
+        QCOMPARE(window.document().components[4].resistance, 33.0);
+        QCOMPARE(window.document().selected, 4);
+
+        bool tableMenuOpened = false;
+        QTimer::singleShot(0, &window, [&] {
+            auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+            if (menu) {
+                tableMenuOpened = true;
+                menu->close();
+            }
+        });
+        const auto tablePoint = table->visualRect(table->model()->index(4, 0)).center();
+        QContextMenuEvent tableContext(QContextMenuEvent::Mouse, tablePoint,
+                                       table->viewport()->mapToGlobal(tablePoint));
+        QApplication::sendEvent(table->viewport(), &tableContext);
+        QVERIFY(tableMenuOpened);
+
+        bool schematicMenuOpened = false;
+        QTimer::singleShot(0, &window, [&] {
+            auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+            if (menu) {
+                schematicMenuOpened = true;
+                menu->close();
+            }
+        });
+        const auto schematicPoint =
+            schematic->mapFromScene(schematic->componentRect(4).center());
+        QTest::mouseClick(schematic->viewport(), Qt::RightButton,
+                          Qt::NoModifier, schematicPoint);
+        QVERIFY(schematicMenuOpened);
+    }
+
+    void componentShortcutContract()
+    {
+        MainWindow window;
+        present(window);
+        QCOMPARE(action(window, "cutComponent")->shortcut(), QKeySequence::Cut);
+        QCOMPARE(action(window, "copyComponent")->shortcut(), QKeySequence::Copy);
+        QCOMPARE(action(window, "pasteComponent")->shortcut(), QKeySequence::Paste);
+        QCOMPARE(action(window, "insertComponent")->shortcut(), QKeySequence("Ctrl+I"));
+
+        std::map<QString, QString> owners;
+        for (auto* a : window.findChildren<QAction*>()) {
+            if (a->shortcut().isEmpty()) continue;
+            const auto shortcut = a->shortcut().toString(QKeySequence::PortableText);
+            const auto name = a->objectName().isEmpty() ? tr("unnamed") : a->objectName();
+            const auto [previous, inserted] =
+                owners.emplace(shortcut, name);
+            QVERIFY2(inserted, qPrintable(QString("Duplicate shortcut %1: %2 and %3")
+                .arg(shortcut, previous->second, name)));
+        }
     }
 
     void saveLoadAndSelection()

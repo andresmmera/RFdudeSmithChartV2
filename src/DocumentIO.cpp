@@ -107,6 +107,58 @@ rf::TouchstoneData measuredValue(const QJsonObject& o)
     return data;
 }
 
+QJsonObject componentJson(const rf::Component& c)
+{
+    QJsonObject component{
+        {"kind", static_cast<int>(c.kind)}, {"connection", static_cast<int>(c.connection)},
+        {"tune", static_cast<int>(c.tune)}, {"resistanceOhms", c.resistance},
+        {"capacitancePf", c.capacitancePf}, {"inductanceNh", c.inductanceNh},
+        {"lineOhms", c.lineOhms}, {"lengthDegrees", c.lengthDegrees},
+        {"referenceMHz", c.referenceMHz}, {"turnsRatio", c.turnsRatio},
+        {"lengthMode", static_cast<int>(c.lengthMode)},
+        {"velocityMode", static_cast<int>(c.velocityMode)},
+        {"physicalLengthMm", c.physicalLengthMm}, {"velocityFactor", c.velocityFactor},
+        {"dielectricConstant", c.dielectricConstant}, {"substrateHeightMm", c.substrateHeightMm},
+        {"stripWidthMm", c.stripWidthMm}, {"substrateDk", c.substrateDk},
+        {"lossTangent", c.lossTangent}};
+    if (c.kind == rf::Kind::Measured)
+        component.insert("measured", measuredJson(c.measured));
+    return component;
+}
+
+rf::Component componentValue(const QJsonObject& c, int version)
+{
+    rf::Component component;
+    component.kind = static_cast<rf::Kind>(integer(c, "kind"));
+    component.connection = static_cast<rf::Connection>(integer(c, "connection"));
+    component.tune = static_cast<rf::Tune>(integer(c, "tune"));
+    component.resistance = number(c, "resistanceOhms");
+    component.capacitancePf = number(c, "capacitancePf");
+    component.inductanceNh = number(c, "inductanceNh");
+    component.lineOhms = number(c, "lineOhms");
+    component.lengthDegrees = number(c, "lengthDegrees");
+    component.referenceMHz = number(c, "referenceMHz");
+    if (version >= 2) {
+        component.turnsRatio = number(c, "turnsRatio");
+        component.lengthMode = static_cast<rf::LengthMode>(integer(c, "lengthMode"));
+        component.velocityMode = static_cast<rf::VelocityMode>(integer(c, "velocityMode"));
+        component.physicalLengthMm = number(c, "physicalLengthMm");
+        component.velocityFactor = number(c, "velocityFactor");
+        component.dielectricConstant = number(c, "dielectricConstant");
+        component.substrateHeightMm = number(c, "substrateHeightMm");
+        component.stripWidthMm = number(c, "stripWidthMm");
+        component.substrateDk = number(c, "substrateDk");
+        component.lossTangent = number(c, "lossTangent");
+    } else if (component.kind > rf::Kind::SeriesRlc) {
+        fail("Component type is not supported in version 1 projects.");
+    }
+    if (component.kind == rf::Kind::Measured) {
+        if (version < 3) fail("Measured blocks require project version 3.");
+        component.measured = measuredValue(object(c, "measured"));
+    }
+    return component;
+}
+
 class Archive
 {
 public:
@@ -189,22 +241,9 @@ QByteArray toJson(const rf::Document& d)
     QJsonArray components;
     bool measured = d.measuredLoad.has_value();
     for (const auto& c : d.components) {
-        QJsonObject component{
-            {"kind", static_cast<int>(c.kind)}, {"connection", static_cast<int>(c.connection)},
-            {"tune", static_cast<int>(c.tune)}, {"resistanceOhms", c.resistance},
-            {"capacitancePf", c.capacitancePf}, {"inductanceNh", c.inductanceNh},
-            {"lineOhms", c.lineOhms}, {"lengthDegrees", c.lengthDegrees},
-            {"referenceMHz", c.referenceMHz}, {"turnsRatio", c.turnsRatio},
-            {"lengthMode", static_cast<int>(c.lengthMode)},
-            {"velocityMode", static_cast<int>(c.velocityMode)},
-            {"physicalLengthMm", c.physicalLengthMm}, {"velocityFactor", c.velocityFactor},
-            {"dielectricConstant", c.dielectricConstant}, {"substrateHeightMm", c.substrateHeightMm},
-            {"stripWidthMm", c.stripWidthMm}, {"substrateDk", c.substrateDk},
-            {"lossTangent", c.lossTangent}};
-        if (c.kind == rf::Kind::Measured) {
+        QJsonObject component = componentJson(c);
+        if (c.kind == rf::Kind::Measured)
             measured = true;
-            component.insert("measured", measuredJson(c.measured));
-        }
         components.append(component);
     }
     QJsonArray presets;
@@ -252,6 +291,32 @@ QByteArray toJson(const rf::Document& d)
     if (d.referenceOverlay)
         root.insert("referenceOverlay", measuredJson(*d.referenceOverlay));
     return QJsonDocument(root).toJson(QJsonDocument::Indented);
+}
+
+QByteArray componentToJson(const rf::Component& component)
+{
+    rf::validate(component);
+    QJsonObject root{
+        {"format", "RFdudeSmithChartComponent"},
+        {"version", 1},
+        {"component", componentJson(component)}};
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+rf::Component componentFromJson(const QByteArray& data)
+{
+    QJsonParseError error;
+    const auto parsed = QJsonDocument::fromJson(data, &error);
+    if (error.error != QJsonParseError::NoError || !parsed.isObject())
+        fail("Invalid component JSON: " + error.errorString());
+    const auto root = parsed.object();
+    if (text(root, "format") != "RFdudeSmithChartComponent")
+        fail("Unsupported component format.");
+    if (integer(root, "version") != 1)
+        fail("Unsupported component format version.");
+    const auto component = componentValue(object(root, "component"), 3);
+    rf::validate(component);
+    return component;
 }
 
 rf::Document fromJson(const QByteArray& data)
@@ -328,36 +393,7 @@ rf::Document fromJson(const QByteArray& data)
     if (!o.value("components").isArray()) fail("Missing component array.");
     for (const auto entry : o.value("components").toArray()) {
         if (!entry.isObject()) fail("Invalid component entry.");
-        const auto c = entry.toObject();
-        rf::Component component;
-        component.kind = static_cast<rf::Kind>(integer(c, "kind"));
-        component.connection = static_cast<rf::Connection>(integer(c, "connection"));
-        component.tune = static_cast<rf::Tune>(integer(c, "tune"));
-        component.resistance = number(c, "resistanceOhms");
-        component.capacitancePf = number(c, "capacitancePf");
-        component.inductanceNh = number(c, "inductanceNh");
-        component.lineOhms = number(c, "lineOhms");
-        component.lengthDegrees = number(c, "lengthDegrees");
-        component.referenceMHz = number(c, "referenceMHz");
-        if (version >= 2) {
-            component.turnsRatio = number(c, "turnsRatio");
-            component.lengthMode = static_cast<rf::LengthMode>(integer(c, "lengthMode"));
-            component.velocityMode = static_cast<rf::VelocityMode>(integer(c, "velocityMode"));
-            component.physicalLengthMm = number(c, "physicalLengthMm");
-            component.velocityFactor = number(c, "velocityFactor");
-            component.dielectricConstant = number(c, "dielectricConstant");
-            component.substrateHeightMm = number(c, "substrateHeightMm");
-            component.stripWidthMm = number(c, "stripWidthMm");
-            component.substrateDk = number(c, "substrateDk");
-            component.lossTangent = number(c, "lossTangent");
-        } else if (component.kind > rf::Kind::SeriesRlc) {
-            fail("Component type is not supported in version 1 projects.");
-        }
-        if (component.kind == rf::Kind::Measured) {
-            if (version < 3) fail("Measured blocks require project version 3.");
-            component.measured = measuredValue(object(c, "measured"));
-        }
-        d.components.push_back(component);
+        d.components.push_back(componentValue(entry.toObject(), version));
     }
     rf::validate(d);
     return d;

@@ -174,7 +174,8 @@ or runs remote builds.
   goal marker, cursor inspection, and sampled maximum-Q overlays.
 - VSWR, reflection magnitude, return loss, and mismatch loss relative to the
   real chart reference impedance.
-- Component insertion after selection, editing, deletion, and undo/redo.
+- Component insertion after selection (left or to the right), cut/copy/paste,
+  editing, deletion, and undo/redo.
 - Bottom schematic pane showing the existing RLC, line, and stub networks,
   with synchronized selection and double-click editing.
 - Versioned JSON save/load with atomic writes and unsaved-change protection.
@@ -228,6 +229,8 @@ the focused dropdown selection.
 | Shift + Up/Down or wheel | Tune real reference impedance |
 | `E` / double-click | Edit selected component |
 | Delete | Delete selected component |
+| `Ctrl+I` | Insert a new component to the right of the selected component; the editor defaults to the selected component type |
+| `Ctrl+X` / `Ctrl+C` / `Ctrl+V` | Cut / copy / paste the selected component (platform-standard equivalents on macOS) |
 | Click chart trajectory / table row / schematic component | Select component |
 | Right-click inside chart | Inspect impedance; use as starting/goal impedance |
 | `S` | Network setup, starting/goal impedance, title, and frequency presets |
@@ -272,7 +275,9 @@ Drag the horizontal divider to resize the pane, and use its horizontal scrollbar
 for long networks. A vertical scrollbar is available when the pane is too short
 to show all labels. Selecting a component in the table or chart, or with the
 keyboard, scrolls its schematic into view. Click a schematic component to select
-it, or double-click to edit it. Selection alone does not modify the project.
+it, or double-click to edit it. Right-click a table row or schematic component
+for a context menu with insert, cut, copy, paste, edit, and delete actions.
+Selection alone does not modify the project.
 Existing keyboard editing/tuning shortcuts also work with the schematic focused;
 the schematic's scrollbars/wheel navigate the view rather than tune values.
 
@@ -467,6 +472,9 @@ reciprocity/passivity, and the existing terminated-impedance calculation.
 
 Use **File -> Import Touchstone...** or **Network -> Import Touchstone block /
 load...**. The import is undoable and opens the frequency-response view.
+When matching elements must sit to the right of an imported block, select the
+block and use `Ctrl+I` or the schematic/table right-click menu to insert a new
+component there. Copied components can also be pasted with `Ctrl+V`.
 
 - A `.s2p` file inserts a measured two-port after the selected table component.
   The schematic shows a box with **port 1 toward source/input** and **port 2
