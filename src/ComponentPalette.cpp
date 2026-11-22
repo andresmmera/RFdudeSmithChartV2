@@ -101,7 +101,9 @@ ComponentPalette::ComponentPalette(QWidget* parent) : QWidget(parent)
     row->setContentsMargins(0, 0, 0, 0);
     row->setSpacing(6);
     for (const auto& entry : entries) {
-        const auto name = QString::fromStdString(rf::kindName(entry.kind));
+        // The series/shunt choice is made with the buttons, so the group is just "RLC".
+        const bool rlc = entry.kind == rf::Kind::SeriesRlc;
+        const auto name = rlc ? tr("RLC") : QString::fromStdString(rf::kindName(entry.kind));
         auto* box = new QGroupBox(name);
         box->setObjectName(QString("palette%1").arg(QString(entry.key)));
         auto* boxLayout = new QHBoxLayout(box);
@@ -116,7 +118,7 @@ ComponentPalette::ComponentPalette(QWidget* parent) : QWidget(parent)
             button->setText(connectionLabel(connection));
             button->setAutoRaise(true);
             // The first connection of each type is what the keyboard shortcut adds.
-            const auto tip = tr("Add %1, %2").arg(name.toLower(), connectionLabel(connection).toLower());
+            const auto tip = tr("Add %1, %2").arg(rlc ? name : name.toLower(), connectionLabel(connection).toLower());
             button->setToolTip(i == 0 ? tr("%1 (%2)").arg(tip, QString(entry.key)) : tip);
             connect(button, &QToolButton::clicked, this,
                     [this, kind = entry.kind, connection] { emit addRequested(kind, connection); });
