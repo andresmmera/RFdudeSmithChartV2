@@ -22,6 +22,14 @@ void addSeriesReactance(Document& document, double reactance)
     document.components.push_back(c);
 }
 
+/// @brief Appends a shunt capacitor or inductor with a given susceptance.
+/// @details A positive susceptance is a capacitor (C = B/w) and a negative one is an
+/// inductor (L = -1/(w B)), both evaluated at the document frequency. Nothing is
+/// added for a zero susceptance.
+/// @param document Document that receives the component.
+/// @param susceptance Susceptance in siemens.
+/// @throws std::invalid_argument If the resulting value is outside the range accepted
+/// by validate().
 void addShuntSusceptance(Document& document, double susceptance)
 {
     if (susceptance == 0) return;
@@ -42,19 +50,31 @@ void finish(Document& document)
     validate(document);
 }
 
+/// @brief Tells whether a topology is built from MatchSpecification::sections.
+/// @param type Matching topology.
+/// @return True for the lumped low-pass, lumped high-pass and quarter-wave
+/// topologies; false for the stub, Pi, Tee and tapped topologies, which ignore the
+/// section count.
 bool usesSections(MatchType type)
 {
     return type == MatchType::LowPass || type == MatchType::HighPass
            || type == MatchType::QuarterWave;
 }
 
+/// @brief Tells whether a topology is a stub match.
+/// @param type Matching topology.
+/// @return True for MatchType::SingleStub and MatchType::DoubleStub.
 bool isStub(MatchType type)
 {
     return type == MatchType::SingleStub || type == MatchType::DoubleStub;
 }
 
-// Stub matches use the goal resistance as the characteristic impedance of every
-// line and stub, so the admittance at the stub junction becomes 1/goal.
+/// @brief Characteristic impedance shared by every line and stub of a stub match.
+/// @details It is the goal resistance, so that the admittance at the stub junction
+/// becomes 1/goal.
+/// @param s Match specification; its goal must be purely resistive.
+/// @return Goal resistance in ohms.
+/// @throws std::invalid_argument If the goal has a nonzero reactance.
 double stubLineOhms(const MatchSpecification& s)
 {
     if (s.goalOhms.imag() != 0)
@@ -63,6 +83,11 @@ double stubLineOhms(const MatchSpecification& s)
     return s.goalOhms.real();
 }
 
+/// @brief Builds an ideal through transmission line.
+/// @param s Match specification, for the design frequency and reference impedance.
+/// @param z0 Characteristic impedance in ohms.
+/// @param degrees Electrical length in degrees at the design frequency.
+/// @return The line component, in series with the signal path.
 Component matchLine(const MatchSpecification& s, double z0, double degrees)
 {
     auto line = defaultComponent(Kind::Line, s.frequencyMHz, s.referenceOhms);
@@ -71,10 +96,14 @@ Component matchLine(const MatchSpecification& s, double z0, double degrees)
     return line;
 }
 
-// Shunt stub with the given input susceptance (siemens).
-// Open: Y = j*tan(l)/z0. Shorted: Y = -j*cot(l)/z0.
-// The length is folded into [0, 180) degrees because a negative length is a
-// half wavelength longer.
+/// @brief Builds a shunt stub with a given input susceptance.
+/// @details The termination comes from MatchSpecification::stub. An open stub has
+/// Y = j tan(l)/z0 and a shorted stub has Y = -j cot(l)/z0. The length is folded into
+/// [0, 180) degrees because a negative length is a half wavelength longer.
+/// @param s Match specification, for the termination, frequency and reference.
+/// @param z0 Characteristic impedance of the stub in ohms.
+/// @param susceptance Required input susceptance of the stub in siemens.
+/// @return The stub component, as a line with an open or shorted shunt connection.
 Component matchStub(const MatchSpecification& s, double z0, double susceptance)
 {
     const bool open = s.stub == StubTermination::Open;
@@ -85,10 +114,18 @@ Component matchStub(const MatchSpecification& s, double z0, double susceptance)
     return stub;
 }
 
-// Single-stub match: a series line of length d from the load, then a shunt stub
-// across it. Closed-form solution from D. M. Pozar, Microwave Engineering, 4th ed.,
-// Wiley, 2012, pp. 234-241 (the first of the two solutions, as in the Qucs-S
-// MatchingNetwork SingleStub tool).
+/// @brief Appends a single-stub match: a series line, then a shunt stub.
+/// @details The line of length d runs from the (possibly complex) start impedance to
+/// the stub. The stub then cancels the susceptance left at that point, so the
+/// admittance becomes 1/goal. With t = tan(beta d) and the load Zl = Rl + jXl:
+/// t = -Xl/(2 Z0) if Rl = Z0, otherwise t = (Xl + sqrt(Rl ((Z0 - Rl)^2 + Xl^2)/Z0))
+/// / (Rl - Z0). It uses the first of the two solutions, as the Qucs-S tool does.
+/// @par Reference
+/// D. M. Pozar, Microwave Engineering, 4th ed., Wiley, 2012, pp. 234-241; ported from
+/// the SingleStub tool of Qucs-S (https://github.com/andresmmera/qucs-s-spar-viewer).
+/// @param document Document that receives the line and the stub, in start-to-goal order.
+/// @param s Match specification. The goal must be purely resistive.
+/// @throws std::invalid_argument If the goal has a nonzero reactance.
 void addSingleStub(Document& document, const MatchSpecification& s)
 {
     const double z0 = stubLineOhms(s);
@@ -111,10 +148,21 @@ void addSingleStub(Document& document, const MatchSpecification& s)
     document.components.push_back(matchStub(s, z0, -b));
 }
 
-// Double-stub match: a shunt stub across the load, a lambda/8 line, then a second
-// shunt stub. Closed-form solution from D. M. Pozar, Microwave Engineering,
-// 4th ed., Wiley, 2012, pp. 241-245 (the first of the two solutions, as in the
-// Qucs-S MatchingNetwork DoubleStub tool).
+/// @brief Appends a double-stub match: a shunt stub, a lambda/8 line, a second stub.
+/// @details The first stub sits across the load and the second one lambda/8 (45
+/// degrees) away. With t = tan(45 deg) = 1, the stub susceptances for a load
+/// admittance Gl + jBl are B1 = -Bl + Y0 + sqrt(Gl (2 Y0 - Gl)) and
+/// B2 = (Y0 sqrt(Gl (2 Y0 - Gl)) + Gl Y0)/Gl. It uses the first of the two solutions,
+/// as the Qucs-S tool does. The radicand is negative, and the load cannot be matched,
+/// when Gl exceeds 2 Y0.
+/// @par Reference
+/// D. M. Pozar, Microwave Engineering, 4th ed., Wiley, 2012, pp. 241-245; ported from
+/// the DoubleStub tool of Qucs-S (https://github.com/andresmmera/qucs-s-spar-viewer).
+/// @param document Document that receives the two stubs and the line, in
+/// start-to-goal order.
+/// @param s Match specification. The goal must be purely resistive.
+/// @throws std::invalid_argument If the goal has a nonzero reactance, or if the load
+/// conductance exceeds twice the goal conductance.
 void addDoubleStub(Document& document, const MatchSpecification& s)
 {
     const double z0 = stubLineOhms(s);
@@ -134,9 +182,15 @@ void addDoubleStub(Document& document, const MatchSpecification& s)
     document.components.push_back(matchStub(s, z0, (y0 * root + gl * y0) / gl));
 }
 
-// Pi and Tee matches are two back-to-back L sections that meet at a virtual
-// resistance Rv. Rv is below both terminations for Pi and above both for Tee, which
-// needs the same minimum loaded Q in both cases. The tapped networks need it too.
+/// @brief Checks that the loaded Q is high enough for the Pi, Tee and tapped networks.
+/// @details These networks are two back-to-back L sections that meet at a virtual
+/// resistance Rv. Rv is below both terminations for Pi and above both for Tee, and
+/// the tapped networks need the same minimum Q: Q^2 + 1 must exceed Rmax/Rmin.
+/// @param s Match specification; its loaded Q is checked.
+/// @param rs Goal (source) resistance in ohms.
+/// @param rl Start (load) resistance in ohms.
+/// @throws std::invalid_argument If Q is not finite or does not exceed
+/// sqrt(Rmax/Rmin - 1). The message reports that minimum.
 void requireLoadedQ(const MatchSpecification& s, double rs, double rl)
 {
     const double ratio = std::max(rs, rl) / std::min(rs, rl);
@@ -148,11 +202,21 @@ void requireLoadedQ(const MatchSpecification& s, double rs, double rl)
     }
 }
 
-// Pi match: the Rv sits below both terminations and the series elements of the two
-// halves share one branch, giving shunt - series - shunt. M. Steer, Microwave and RF
-// Design: Networks, NC State University Libraries, 2019, p. 174 (as in the Qucs-S
-// PiMatching tool). Each half is low-pass or high-pass. The start impedance may be
-// complex.
+/// @brief Appends a Pi match: shunt, series, shunt.
+/// @details Two L sections meet at a virtual resistance Rv = Rmax/(Q^2 + 1), below both
+/// terminations, and the series elements of the two halves share one branch. Each half
+/// is low-pass or high-pass, as set by MatchSpecification::halves with the goal-side
+/// half first. The load half is solved for a complex start impedance, so the start
+/// reactance is absorbed and needs no compensating element. The series reactance of
+/// the load half is written as Rv (B2 |Z|^2 - X)/R, which equals the form in the
+/// Qucs-S tool without its 1/B2 singularity.
+/// @par Reference
+/// M. Steer, Microwave and RF Design: Networks, NC State University Libraries, 2019,
+/// p. 174; ported from the PiMatching tool of Qucs-S
+/// (https://github.com/andresmmera/qucs-s-spar-viewer).
+/// @param document Document that receives the elements, in start-to-goal order.
+/// @param s Match specification. Uses the loaded Q and the band of each half.
+/// @throws std::invalid_argument If the loaded Q is too low (see requireLoadedQ()).
 void addPiNetwork(Document& document, const MatchSpecification& s)
 {
     const double rs = s.goalOhms.real();
@@ -176,12 +240,20 @@ void addPiNetwork(Document& document, const MatchSpecification& s)
     addShuntSusceptance(document, sourceLowPass ? b1 : -b1);
 }
 
-// Tee match: Rv sits above both terminations and the shunt elements of the two
-// halves share one branch, giving series - shunt - series. P. Vizmuller, RF Design
-// Guide: Systems, Circuits and Equations, Artech House, 1995 (as in the Qucs-S
-// TeeMatching tool, whose source-side series reactance carries a stray RS/Rv term
-// that leaves a small residual reactance; it is omitted here). Each half is
-// low-pass or high-pass. The start impedance may be complex.
+/// @brief Appends a Tee match: series, shunt, series.
+/// @details Two L sections meet at a virtual resistance Rv = (Q^2 + 1) Rmin, above both
+/// terminations, and the shunt elements of the two halves share one branch. Each half
+/// is low-pass or high-pass, as set by MatchSpecification::halves with the goal-side
+/// half first. The start reactance is absorbed by the load-side series element. The
+/// Qucs-S tool adds a stray RS/Rv term to the source-side series reactance, which
+/// leaves a small residual reactance at the goal; it is omitted here.
+/// @par Reference
+/// P. Vizmuller, RF Design Guide: Systems, Circuits and Equations, Artech House,
+/// 1995; ported from the TeeMatching tool of Qucs-S
+/// (https://github.com/andresmmera/qucs-s-spar-viewer).
+/// @param document Document that receives the elements, in start-to-goal order.
+/// @param s Match specification. Uses the loaded Q and the band of each half.
+/// @throws std::invalid_argument If the loaded Q is too low (see requireLoadedQ()).
 void addTeeNetwork(Document& document, const MatchSpecification& s)
 {
     const double rs = s.goalOhms.real();
@@ -203,16 +275,24 @@ void addTeeNetwork(Document& document, const MatchSpecification& s)
     addSeriesReactance(document, sourceLowPass ? x1 : -x1);
 }
 
-// Tapped-C and tapped-L matches: shunt - series - shunt, where the loaded Q is that of
-// the shunt element on the higher-resistance side (as in the Qucs-S TappedCMatching
-// and TappedLMatching tools). With Rhigh and Rlow the larger and smaller terminations,
-// Q2 = sqrt(Rlow/Rhigh * (Q^2 + 1) - 1) is the Q of the other shunt element:
-//   tapped-C: shunt L = Rhigh/(w Q) on the high side, shunt C = Q2/(w Rlow) on the
-//             low side and series C = C2 (Q2^2 + 1)/(Q Q2 - Q2^2);
-//   tapped-L: shunt C = Q/(w Rhigh) on the high side, shunt L = Rlow/(w Q2) on the
-//             low side and series L = L2 (Q Q2 - Q2^2)/(Q2^2 + 1).
-// The two differ only by the sign of every susceptance and reactance, which is used
-// below. The start reactance is cancelled first by a lumped series element.
+/// @brief Appends a tapped-C or tapped-L match: shunt, series, shunt.
+/// @details The loaded Q is that of the shunt element on the higher-resistance side.
+/// With Rhigh and Rlow the larger and smaller terminations and
+/// Q2 = sqrt(Rlow/Rhigh (Q^2 + 1) - 1):
+/// - tapped-C: shunt L = Rhigh/(w Q) on the high side, shunt C2 = Q2/(w Rlow) on the
+///   low side and series C1 = C2 (Q2^2 + 1)/(Q Q2 - Q2^2);
+/// - tapped-L: shunt C = Q/(w Rhigh) on the high side, shunt L2 = Rlow/(w Q2) on the
+///   low side and series L1 = L2 (Q Q2 - Q2^2)/(Q2^2 + 1).
+///
+/// The two networks differ only by the sign of every susceptance and reactance, which
+/// the implementation uses. The start reactance is cancelled first by a lumped
+/// series element, because the equations assume a real load.
+/// @par Reference
+/// Ported from the TappedCMatching and TappedLMatching tools of Qucs-S
+/// (https://github.com/andresmmera/qucs-s-spar-viewer).
+/// @param document Document that receives the elements, in start-to-goal order.
+/// @param s Match specification. Uses the loaded Q and the tapped element.
+/// @throws std::invalid_argument If the loaded Q is too low (see requireLoadedQ()).
 void addTappedNetwork(Document& document, const MatchSpecification& s)
 {
     const double rs = s.goalOhms.real();
@@ -231,8 +311,12 @@ void addTappedNetwork(Document& document, const MatchSpecification& s)
     addShuntSusceptance(document, rl > rs ? lowSusceptance : highSusceptance);
 }
 
-// Validate the synthesized endpoint, not just individual component ranges:
-// extreme ratios can lose precision even when each element is representable.
+/// @brief Verifies that the synthesized network ends on the goal impedance.
+/// @details This checks the whole network, not just the range of each component:
+/// extreme ratios can lose precision even when every element is representable.
+/// @param document Synthesized document, evaluated from its start impedance.
+/// @throws std::invalid_argument If the endpoint is open or differs from the goal by
+/// more than 1e-7 of max(1, |goal|).
 void verifyEndpoint(const Document& document)
 {
     auto endpoint = Impedance::fromOhms(document.startOhms);
