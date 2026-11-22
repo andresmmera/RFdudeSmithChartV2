@@ -13,7 +13,8 @@ enum class MatchType {
     DoubleStub,   ///< Shunt stub, lambda/8 line, second shunt stub.
     Pi,           ///< Shunt, series, shunt network through a virtual resistance.
     Tee,          ///< Series, shunt, series network through a virtual resistance.
-    Tapped        ///< Tapped-C or tapped-L shunt, series, shunt network.
+    Tapped,       ///< Tapped-C or tapped-L shunt, series, shunt network.
+    DoubleTapped  ///< Double-tapped resonator: shunt L, series L and C, shunt C.
 };
 
 /// @brief Termination of the stubs of a stub match.
@@ -48,9 +49,10 @@ struct MatchSpecification
     int sections = 1;  ///< Number of sections; ignored by the stub, Pi, Tee and tapped topologies.
     StubTermination stub = StubTermination::Open;  ///< Stub termination; used only by the stub topologies.
     ReactanceMatch startReactance = ReactanceMatch::Lumped;  ///< Start reactance match; used only by QuarterWave.
-    double q = 5;  ///< Loaded Q; used by Pi, Tee and Tapped.
+    double q = 5;  ///< Loaded Q; used by Pi, Tee, Tapped and DoubleTapped.
     HalfBands halves = HalfBands::LpLp;  ///< Band of each half; used only by Pi and Tee.
     TapElement tap = TapElement::Capacitor;  ///< Tapped element; used only by Tapped.
+    double tapInductanceNh = 10;  ///< Series tap inductor in nH; used only by DoubleTapped.
     Complex startOhms = {5, 0};
     Complex goalOhms = {50, 0};
     double frequencyMHz = 1000;

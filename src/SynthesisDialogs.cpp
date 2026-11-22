@@ -131,7 +131,7 @@ std::optional<rf::Document> matchWizard(QWidget* parent, const rf::Document& doc
     auto* type = choices(form, "Topology", "matchType",
                          {"Lumped low-pass", "Lumped high-pass", "Quarter-wave transformer",
                           "Single stub", "Double stub", "Pi network", "Tee network",
-                          "Tapped resonator"});
+                          "Tapped resonator", "Double-tapped resonator"});
     auto* sections = new QSpinBox;
     sections->setObjectName("matchSections");
     sections->setRange(1, 10);
@@ -146,9 +146,11 @@ std::optional<rf::Document> matchWizard(QWidget* parent, const rf::Document& doc
                         {"Capacitor (tapped-C)", "Inductor (tapped-L)"});
     auto* loadedQ = field(form, "Loaded Q", "matchQ", 5, 0.1, 100);
     loadedQ->setDecimals(2);
+    auto* tapInductance = field(form, "Tap inductor (nH)", "matchTapInductance", 10, 0, 1e6);
+    tapInductance->setDecimals(2);
     auto* note = new QLabel;
     note->setWordWrap(true);
-    const auto updateControls = [form, type, sections, stub, reactance, halfBands, tap, loadedQ, note] {
+    const auto updateControls = [form, type, sections, stub, reactance, halfBands, tap, loadedQ, tapInductance, note] {
         // Indexed like rf::MatchType.
         static const QStringList details = {
                                              "Legacy MatchMe: equal-ratio resistance steps, with series reactance compensation at the ends.",
@@ -167,7 +169,10 @@ std::optional<rf::Document> matchWizard(QWidget* parent, const rf::Document& doc
                                              "uses a lumped series element.",
                                              "Shunt, series, shunt network with a tapped capacitor (tapped-C) or inductor (tapped-L); Q "
                                              "is that of the shunt element on the higher resistance and must exceed sqrt(Rmax/Rmin - 1). "
-                                             "The start and goal reactances use lumped series elements."};
+                                             "The start and goal reactances use lumped series elements.",
+                                             "Shunt L, series tap inductor and capacitor, shunt C. Q is that of the shunt L across the goal "
+                                             "resistance; the tap inductor must be large enough for a positive series capacitor. The start "
+                                             "and goal reactances use lumped series elements."};
         const auto topology = static_cast<rf::MatchType>(type->currentIndex());
         const bool stubs = topology == rf::MatchType::SingleStub || topology == rf::MatchType::DoubleStub;
         const auto setRowVisible = [form](QWidget* field, bool visible) {
@@ -182,7 +187,9 @@ std::optional<rf::Document> matchWizard(QWidget* parent, const rf::Document& doc
         const bool tapped = topology == rf::MatchType::Tapped;
         setRowVisible(halfBands, halves);
         setRowVisible(tap, tapped);
-        setRowVisible(loadedQ, halves || tapped);
+        const bool doubleTapped = topology == rf::MatchType::DoubleTapped;
+        setRowVisible(loadedQ, halves || tapped || doubleTapped);
+        setRowVisible(tapInductance, doubleTapped);
         note->setText(details.value(type->currentIndex())
                       + " Uses start/goal settings, not the selected row. Equal resistances are "
                         "preserved; no example load is substituted.");
@@ -203,6 +210,7 @@ std::optional<rf::Document> matchWizard(QWidget* parent, const rf::Document& doc
         s.startReactance = static_cast<rf::ReactanceMatch>(reactance->currentIndex());
         s.halves = static_cast<rf::HalfBands>(halfBands->currentIndex());
         s.tap = static_cast<rf::TapElement>(tap->currentIndex());
+        s.tapInductanceNh = tapInductance->value();
         s.q = loadedQ->value();
         s.startOhms = {startR->value(), startX->value()};
         s.goalOhms = {goalR->value(), goalX->value()};

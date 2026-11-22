@@ -311,6 +311,66 @@ void addTappedNetwork(Document& document, const MatchSpecification& s)
     addShuntSusceptance(document, rl > rs ? lowSusceptance : highSusceptance);
 }
 
+/// @brief Appends a double-tapped resonator match: shunt, series, series, shunt.
+/// @details From the goal side the network is shunt L1, series L2, series C1 and shunt
+/// C2. L2 is the user-chosen tap inductor, and the loaded Q is that of L1 across the
+/// goal resistance Rs. With Rl the start resistance and w the design angular frequency:
+/// - L1 = Rs/(w Q) and Q2 = sqrt(Rl/Rs (Q^2 + 1) - 1);
+/// - C2 = Q2/(w Rl), whose series equivalent is C2' = C2 (1 + Q2^2)/Q2^2;
+/// - L1 and Rs have the series equivalent Leq = L1 Q^2/(1 + Q^2) + L2, which resonates
+///   with Ceq = 1/(w^2 Leq);
+/// - C1 = Ceq C2'/(C2' - Ceq), which is positive only if C2' exceeds Ceq, that is, if
+///   L2 is large enough.
+///
+/// Unlike the tapped-C and tapped-L networks, Q refers to the goal side and no
+/// termination ratio is swapped. The start reactance is cancelled first by a lumped
+/// series element, because the equations assume a real load.
+/// @par Reference
+/// Ported from the DoubleTappedResonatorMatching tool of Qucs-S
+/// (https://github.com/andresmmera/qucs-s-spar-viewer).
+/// @param document Document that receives the elements, in start-to-goal order.
+/// @param s Match specification. Uses the loaded Q and the tap inductance.
+/// @throws std::invalid_argument If Q is not positive and finite, if it is too low for
+/// the termination ratio, if the tap inductance is negative, or if it is too small to
+/// give a positive C1 (the message reports the minimum).
+void addDoubleTappedNetwork(Document& document, const MatchSpecification& s)
+{
+    const double rs = s.goalOhms.real();
+    const double rl = s.startOhms.real();
+    if (!std::isfinite(s.q) || s.q <= 0)
+        throw std::invalid_argument("The loaded Q must be positive.");
+    if (!std::isfinite(s.tapInductanceNh) || s.tapInductanceNh < 0)
+        throw std::invalid_argument("The tap inductance must not be negative.");
+    const double radicand = rl / rs * (s.q * s.q + 1) - 1;
+    if (radicand <= 0) {
+        char text[96];
+        std::snprintf(text, sizeof text, "The double-tapped resonator needs a loaded Q above %.3f.",
+                      std::sqrt(rs / rl - 1));
+        throw std::invalid_argument(text);
+    }
+    const double omega = 2 * pi * s.frequencyMHz * 1e6;
+    const double q2 = std::sqrt(radicand);
+    const double l1 = rs / (omega * s.q);
+    const double l2 = s.tapInductanceNh * 1e-9;
+    const double l1Series = l1 * s.q * s.q / (1 + s.q * s.q);
+    const double c2 = q2 / (omega * rl);
+    const double c2Series = c2 * (1 + q2 * q2) / (q2 * q2);
+    const double ceq = 1 / (omega * omega * (l1Series + l2));
+    // C1 grows without bound as C2' approaches Ceq, so a near tie also needs more L2.
+    if (c2Series <= ceq * (1 + 1e-9)) {
+        char text[96];
+        std::snprintf(text, sizeof text, "The tap inductor must exceed %.3f nH.",
+                      (1 / (omega * omega * c2Series) - l1Series) * 1e9);
+        throw std::invalid_argument(text);
+    }
+    const double c1 = ceq * c2Series / (c2Series - ceq);
+    addSeriesReactance(document, -s.startOhms.imag());
+    addShuntSusceptance(document, omega * c2);
+    addSeriesReactance(document, -1 / (omega * c1));
+    addSeriesReactance(document, omega * l2);
+    addShuntSusceptance(document, -1 / (omega * l1));
+}
+
 /// @brief Verifies that the synthesized network ends on the goal impedance.
 /// @details This checks the whole network, not just the range of each component:
 /// extreme ratios can lose precision even when every element is representable.
@@ -335,7 +395,7 @@ Document synthesizeMatch(const MatchSpecification& s)
     // not the left-to-right source-to-load order used in exported schematics.
     if (s.type != MatchType::LowPass && s.type != MatchType::HighPass
         && s.type != MatchType::QuarterWave && !isStub(s.type) && s.type != MatchType::Pi && s.type != MatchType::Tee
-        && s.type != MatchType::Tapped)
+        && s.type != MatchType::Tapped && s.type != MatchType::DoubleTapped)
         throw std::invalid_argument("Unknown matching topology.");
     if (usesSections(s.type) && (s.sections < 1 || s.sections > 10))
         throw std::invalid_argument("MatchMe requires between 1 and 10 sections.");
@@ -354,8 +414,9 @@ Document synthesizeMatch(const MatchSpecification& s)
                         : s.type == MatchType::Pi ? "pi network"
                         : s.type == MatchType::Tee ? "tee network"
                         : s.type == MatchType::Tapped ? (s.tap == TapElement::Capacitor ? "tapped-C network" : "tapped-L network")
-                                                           : std::string(s.type == MatchType::SingleStub ? "single " : "double ")
-                                                                 + (s.stub == StubTermination::Open ? "open" : "shorted") + " stub")
+                        : s.type == MatchType::DoubleTapped ? "double-tapped resonator"
+                                                            : std::string(s.type == MatchType::SingleStub ? "single " : "double ")
+                                                                  + (s.stub == StubTermination::Open ? "open" : "shorted") + " stub")
                      + (usesSections(s.type) ? ", " + std::to_string(s.sections) + " section(s)" : "");
     document.qCurves = true;
     if (s.startOhms == s.goalOhms) {
@@ -372,11 +433,13 @@ Document synthesizeMatch(const MatchSpecification& s)
         verifyEndpoint(document);
         return document;
     }
-    if (s.type == MatchType::Pi || s.type == MatchType::Tee || s.type == MatchType::Tapped) {
+    if (s.type == MatchType::Pi || s.type == MatchType::Tee || s.type == MatchType::Tapped
+        || s.type == MatchType::DoubleTapped) {
         // Each of these handles the start reactance itself; only the goal reactance is added.
         if (s.type == MatchType::Pi) addPiNetwork(document, s);
         else if (s.type == MatchType::Tee) addTeeNetwork(document, s);
-        else addTappedNetwork(document, s);
+        else if (s.type == MatchType::Tapped) addTappedNetwork(document, s);
+        else addDoubleTappedNetwork(document, s);
         addSeriesReactance(document, s.goalOhms.imag());
         finish(document);
         verifyEndpoint(document);
