@@ -52,7 +52,10 @@ struct Impedance
 enum class Kind { Resistor = 10, Capacitor, Inductor, Line, ParallelRlc, SeriesRlc,
                   Transformer, Coax, Microstrip, Measured };
 enum class Connection { Series = 1, Shunt, ThroughLine, OpenStub, ShortStub };
-enum class Tune { Resistance, Inductance, Capacitance };
+// Resistance/Inductance/Capacitance apply to RLC blocks; Impedance/Length apply to transmission
+// lines and stubs. Values are persisted, so only append. Older files store Resistance for lines,
+// which is treated as Length.
+enum class Tune { Resistance, Inductance, Capacitance, Impedance, Length };
 enum class LengthMode { Electrical, Physical };
 enum class VelocityMode { Factor, Permittivity };
 
