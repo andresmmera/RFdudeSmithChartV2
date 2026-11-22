@@ -86,6 +86,13 @@ MicrostripParameters microstrip(double widthMm, double heightMm, double dk)
     return {impedance, effective, filling};
 }
 
+/// @brief Computes the strip width that gives a target microstrip impedance.
+/// @param impedanceOhms Target characteristic impedance in ohms (must be positive).
+/// @param heightMm      Substrate height in millimetres.
+/// @param dk            Substrate relative permittivity.
+/// @return Strip width in millimetres, found by bisection over W/H = 0.01 to 100.
+/// @throws std::invalid_argument If the target lies outside the impedance range
+/// reachable within that W/H range.
 double microstripWidth(double impedanceOhms, double heightMm, double dk)
 {
     positive(impedanceOhms, "Target impedance");
@@ -443,6 +450,12 @@ std::vector<double> simpleTrajectoryFrequencies(const Document& d)
     return frequencies;
 }
 
+/// @brief Changes the component's tuned parameter by a relative step.
+/// @param component Component to modify.
+/// @param percent   Step size in percent, greater than 0 and less than 100.
+/// @param increase  True to multiply by (1 + percent/100), false to multiply by (1 - percent/100).
+/// @throws std::invalid_argument If the component is a measured block, the step is
+/// invalid, the resulting component is invalid, or a microstrip target impedance is unreachable.
 void tune(Component& c, double percent, bool increase)
 {
     if (c.kind == Kind::Measured)

@@ -52,10 +52,20 @@ struct Impedance
 enum class Kind { Resistor = 10, Capacitor, Inductor, Line, ParallelRlc, SeriesRlc,
                   Transformer, Coax, Microstrip, Measured };
 enum class Connection { Series = 1, Shunt, ThroughLine, OpenStub, ShortStub };
-// Resistance/Inductance/Capacitance apply to RLC blocks; Impedance/Length apply to transmission
-// lines and stubs. Values are persisted, so only append. Older files store Resistance for lines,
-// which is treated as Length.
-enum class Tune { Resistance, Inductance, Capacitance, Impedance, Length };
+
+
+
+/// @brief Parameter adjusted when a component is tuned with the keyboard or mouse wheel.
+/// Resistance, Inductance and Capacitance apply to series and parallel RLC blocks.
+/// Impedance and Length apply to transmission lines, coax, microstrip and stubs.
+/// Other component kinds ignore this setting.
+enum class Tune {
+    Resistance,  ///< RLC block: tune the resistance.
+    Inductance,  ///< RLC block: tune the inductance.
+    Capacitance, ///< RLC block: tune the capacitance.
+    Impedance,   ///< Transmission line: tune the characteristic impedance Z0.
+    Length       ///< Transmission line: tune the electrical or physical length.
+};
 enum class LengthMode { Electrical, Physical };
 enum class VelocityMode { Factor, Permittivity };
 
@@ -63,7 +73,7 @@ struct Component
 {
     Kind kind = Kind::Capacitor;
     Connection connection = Connection::Series;
-    Tune tune = Tune::Capacitance;
+    Tune tune = Tune::Capacitance;               ///< Parameter changed by keyboard tuning; see Tune.
     double resistance = 50;
     double capacitancePf = 3.183098861837907;
     double inductanceNh = 7.957747154594767;
