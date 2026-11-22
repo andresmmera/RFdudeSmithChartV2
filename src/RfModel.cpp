@@ -86,6 +86,13 @@ MicrostripParameters microstrip(double widthMm, double heightMm, double dk)
     return {impedance, effective, filling};
 }
 
+/// @brief Computes the strip width that gives a target microstrip impedance.
+/// @param impedanceOhms Target characteristic impedance in ohms (must be positive).
+/// @param heightMm      Substrate height in millimetres.
+/// @param dk            Substrate relative permittivity.
+/// @return Strip width in millimetres, found by bisection over W/H = 0.01 to 100.
+/// @throws std::invalid_argument If the target lies outside the impedance range
+/// reachable within that W/H range.
 double microstripWidth(double impedanceOhms, double heightMm, double dk)
 {
     positive(impedanceOhms, "Target impedance");
@@ -172,7 +179,7 @@ void validate(const Component& c)
 {
     if (c.kind < Kind::Resistor || c.kind > Kind::Measured)
         throw std::invalid_argument("Unknown component type.");
-    if (c.tune < Tune::Resistance || c.tune > Tune::Capacitance)
+    if (c.tune < Tune::Resistance || c.tune > Tune::Length)
         throw std::invalid_argument("Unknown tuning parameter.");
     const bool line = isTransmissionLine(c.kind);
     if ((line && (c.connection < Connection::ThroughLine || c.connection > Connection::ShortStub))
@@ -284,6 +291,8 @@ Component defaultComponent(Kind kind, double frequencyMHz, double referenceOhms)
     c.tune = kind == Kind::Inductor ? Tune::Inductance : Tune::Resistance;
     if (kind == Kind::Capacitor)
         c.tune = Tune::Capacitance;
+    if (isTransmissionLine(kind))
+        c.tune = Tune::Length;
     if (isTransmissionLine(kind) || kind == Kind::Transformer || kind == Kind::Measured)
         c.connection = Connection::ThroughLine;
     if (kind == Kind::Microstrip) {
@@ -441,6 +450,12 @@ std::vector<double> simpleTrajectoryFrequencies(const Document& d)
     return frequencies;
 }
 
+/// @brief Changes the component's tuned parameter by a relative step.
+/// @param component Component to modify.
+/// @param percent   Step size in percent, greater than 0 and less than 100.
+/// @param increase  True to multiply by (1 + percent/100), false to multiply by (1 - percent/100).
+/// @throws std::invalid_argument If the component is a measured block, the step is
+/// invalid, the resulting component is invalid, or a microstrip target impedance is unreachable.
 void tune(Component& c, double percent, bool increase)
 {
     if (c.kind == Kind::Measured)
@@ -452,9 +467,23 @@ void tune(Component& c, double percent, bool increase)
     if (c.kind == Kind::Capacitor) value = &next.capacitancePf;
     else if (c.kind == Kind::Inductor) value = &next.inductanceNh;
     else if (c.kind == Kind::Transformer) value = &next.turnsRatio;
-    else if (isTransmissionLine(c.kind))
-        value = c.kind != Kind::Line && c.lengthMode == LengthMode::Physical
-            ? &next.physicalLengthMm : &next.lengthDegrees;
+    else if (isTransmissionLine(c.kind)) {
+        if (c.tune == Tune::Impedance) {
+            if (c.kind == Kind::Microstrip) {
+                // Z0 follows from the strip width, so scale the target impedance and solve for width.
+                const double current = microstrip(c.stripWidthMm, c.substrateHeightMm, c.substrateDk).impedanceOhms;
+                const double target = current * (1 + (increase ? percent : -percent) / 100);
+                next.stripWidthMm = microstripWidth(target, c.substrateHeightMm, c.substrateDk);
+                validate(next);
+                c = next;
+                return;
+            }
+            value = &next.lineOhms;
+        } else {
+            value = c.kind != Kind::Line && c.lengthMode == LengthMode::Physical
+                ? &next.physicalLengthMm : &next.lengthDegrees;
+        }
+    }
     else if (c.kind == Kind::SeriesRlc || c.kind == Kind::ParallelRlc) {
         if (c.tune == Tune::Inductance) value = &next.inductanceNh;
         if (c.tune == Tune::Capacitance) value = &next.capacitancePf;

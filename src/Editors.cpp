@@ -139,7 +139,7 @@ QString measuredDescription(const rf::TouchstoneData& data)
         .arg(data.samples.size());
 }
 
-QString componentDescription(const rf::Component& c)
+static QString componentDescriptionBase(const rf::Component& c)
 {
     const auto n = [](double value) { return QString::number(value, 'g', 7); };
     switch (c.kind) {
@@ -178,6 +178,14 @@ QString componentDescription(const rf::Component& c)
                  c.tune == rf::Tune::Resistance ? "R" : c.tune == rf::Tune::Inductance ? "L" : "C");
     }
     throw std::invalid_argument("Unknown component type.");
+}
+
+QString componentDescription(const rf::Component& c)
+{
+    auto text = componentDescriptionBase(c);
+    if (rf::isTransmissionLine(c.kind) && c.tune == rf::Tune::Impedance)
+        text += " (tune Z0)";
+    return text;
 }
 
 std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component& original)
@@ -264,9 +272,9 @@ std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component&
     layout->addWidget(modelNotes);
     auto* tuning = new QComboBox;
     tuning->setObjectName("tuningParameter");
-    tuning->addItems({"Resistance", "Inductance", "Capacitance"});
-    tuning->setCurrentIndex(static_cast<int>(original.tune));
     form->addRow("Keyboard tuning parameter", tuning);
+    bool tuningForLine = false;
+    bool tuningPopulated = false;
     for (auto* control : dialog.findChildren<QComboBox*>())
         control->setFocusPolicy(Qt::StrongFocus);
     QDialogButtonBox* buttonBox = nullptr;
@@ -319,7 +327,24 @@ std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component&
         form->setRowVisible(dielectric, coax && velocityMode->currentIndex() == 1);
         for (auto* control : {height, width, dk, df, target}) form->setRowVisible(control, strip);
         form->setRowVisible(solve, strip);
-        form->setRowVisible(tuning, compound);
+        if (!tuningPopulated || tuningForLine != line) {
+            const int wanted = tuningPopulated ? tuning->currentData().toInt()
+                                               : static_cast<int>(original.tune);
+            tuning->clear();
+            if (line) {
+                tuning->addItem("Length", static_cast<int>(rf::Tune::Length));
+                tuning->addItem("Characteristic impedance", static_cast<int>(rf::Tune::Impedance));
+            } else {
+                tuning->addItem("Resistance", static_cast<int>(rf::Tune::Resistance));
+                tuning->addItem("Inductance", static_cast<int>(rf::Tune::Inductance));
+                tuning->addItem("Capacitance", static_cast<int>(rf::Tune::Capacitance));
+            }
+            const int found = tuning->findData(wanted);
+            tuning->setCurrentIndex(found >= 0 ? found : 0);
+            tuningForLine = line;
+            tuningPopulated = true;
+        }
+        form->setRowVisible(tuning, compound || line);
         dialog.setWindowTitle(strip ? "Microstrip calculator / element" : "Component");
         dialog.setMinimumWidth(strip ? 640 : 480);
         results->setVisible(line || transformer);
@@ -334,10 +359,14 @@ std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component&
         case rf::Kind::Resistor: return resistance;
         case rf::Kind::Inductor: return inductance;
         case rf::Kind::Capacitor: return capacitance;
-        case rf::Kind::Line: return length;
+        case rf::Kind::Line:
+            return tuning->currentData().toInt() == static_cast<int>(rf::Tune::Impedance) ? lineOhms : length;
         case rf::Kind::Transformer: return ratio;
         case rf::Kind::Coax:
+            if (tuning->currentData().toInt() == static_cast<int>(rf::Tune::Impedance)) return lineOhms;
+            return lengthMode->currentIndex() == 1 ? physical : length;
         case rf::Kind::Microstrip:
+            if (tuning->currentData().toInt() == static_cast<int>(rf::Tune::Impedance)) return width;
             return lengthMode->currentIndex() == 1 ? physical : length;
         case rf::Kind::ParallelRlc:
         case rf::Kind::SeriesRlc:
@@ -368,7 +397,9 @@ std::optional<rf::Component> editComponent(QWidget* parent, const rf::Component&
         auto value = original;
         value.kind = static_cast<rf::Kind>(kind->currentData().toInt());
         value.connection = static_cast<rf::Connection>(connection->currentData().toInt());
-        value.tune = static_cast<rf::Tune>(tuning->currentIndex());
+        if (tuning->currentIndex() >= 0 && (rf::isTransmissionLine(value.kind)
+            || value.kind == rf::Kind::SeriesRlc || value.kind == rf::Kind::ParallelRlc))
+            value.tune = static_cast<rf::Tune>(tuning->currentData().toInt());
         value.resistance = resistance->value();
         value.inductanceNh = inductance->value();
         value.capacitancePf = capacitance->value();
