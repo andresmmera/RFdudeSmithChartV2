@@ -8,7 +8,13 @@ int main(int argc, char* argv[])
 {
     QApplication application(argc, argv);
     QCoreApplication::setApplicationName("RFdudeSmithChartV2");
-    QCoreApplication::setApplicationVersion("0.1.0");
+    QCoreApplication::setApplicationVersion(
+#ifdef RFDUDE_APP_VERSION
+        RFDUDE_APP_VERSION
+#else
+        "0.1.1"
+#endif
+    );
     QCoreApplication::setOrganizationName("RFdude");
     QGuiApplication::setDesktopFileName("rfdude-smith-chart-v2");
     QApplication::setWindowIcon(QIcon(":/icons/rfdude-smith-chart-v2.png"));

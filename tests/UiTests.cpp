@@ -74,6 +74,14 @@ class UiTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void updateActionAndVersion()
+    {
+        QCoreApplication::setApplicationVersion("0.1.1");
+        MainWindow window;
+        QVERIFY(action(window, "checkForUpdates"));
+        QCOMPARE(QCoreApplication::applicationVersion(), QString("0.1.1"));
+    }
+
     void applicationIconResource()
     {
         const QIcon icon(":/icons/rfdude-smith-chart-v2.png");

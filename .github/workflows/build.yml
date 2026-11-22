@@ -52,10 +52,15 @@ jobs:
           cache: true
       - name: Configure macOS
         if: runner.os == 'macOS'
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DRFDUDE_BUNDLE_QT=ON -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake-osx-architecture }}
+        env:
+          RFDUDE_BUILD_TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}-{1}', github.run_id, github.run_attempt) }}
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DRFDUDE_BUNDLE_QT=ON -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake-osx-architecture }} -DRFDUDE_BUILD_TAG="$RFDUDE_BUILD_TAG"
       - name: Configure
         if: runner.os != 'macOS'
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DRFDUDE_BUNDLE_QT=ON
+        shell: bash
+        env:
+          RFDUDE_BUILD_TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}-{1}', github.run_id, github.run_attempt) }}
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DRFDUDE_BUNDLE_QT=ON -DRFDUDE_BUILD_TAG="$RFDUDE_BUILD_TAG"
       - name: Build
         id: build
         run: cmake --build build --config Release --parallel 2

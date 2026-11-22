@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(RFdudeSmithChartV2
-    VERSION 0.1.0
+    VERSION 0.1.1
     DESCRIPTION "Cross-platform RF Smith chart application"
     LANGUAGES CXX
 )
@@ -24,9 +24,23 @@ if(RFDUDE_BUNDLE_QT AND UNIX AND NOT APPLE)
     set(QT_DEPLOY_USE_PATCHELF ON)
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Network)
 
 qt_standard_project_setup()
+
+set(RFDUDE_BUILD_TAG "" CACHE STRING "Public build/release tag embedded in the executable")
+if(NOT RFDUDE_BUILD_TAG)
+    if(DEFINED ENV{RFDUDE_BUILD_TAG})
+        set(RFDUDE_BUILD_TAG "$ENV{RFDUDE_BUILD_TAG}")
+    else()
+        execute_process(
+            COMMAND git describe --tags --always --dirty
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            OUTPUT_VARIABLE RFDUDE_BUILD_TAG
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+    endif()
+endif()
 
 file(GLOB example_files CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/examples/*")
 foreach(example IN LISTS example_files)
@@ -37,6 +51,8 @@ endforeach()
 add_library(rfcore
     src/RfModel.cpp
     src/RfModel.h
+    src/UpdateCheck.cpp
+    src/UpdateCheck.h
     src/FrequencyResponse.cpp
     src/FrequencyResponse.h
     src/Touchstone.cpp
@@ -71,7 +87,11 @@ add_library(rfui
     src/SchematicWidget.cpp
     src/SchematicWidget.h
 )
-target_link_libraries(rfui PUBLIC rfcore Qt6::Widgets)
+target_link_libraries(rfui PUBLIC rfcore Qt6::Widgets Qt6::Network)
+target_compile_definitions(rfui PRIVATE
+    RFDUDE_BUILD_TAG="${RFDUDE_BUILD_TAG}"
+    RFDUDE_APP_VERSION="${PROJECT_VERSION}"
+)
 
 qt_add_executable(RFdudeSmithChartV2 src/main.cpp src/application.qrc)
 if(WIN32)
@@ -79,6 +99,10 @@ if(WIN32)
     target_include_directories(RFdudeSmithChartV2 PRIVATE packaging/windows)
 endif()
 target_link_libraries(RFdudeSmithChartV2 PRIVATE rfui)
+target_compile_definitions(RFdudeSmithChartV2 PRIVATE
+    RFDUDE_BUILD_TAG="${RFDUDE_BUILD_TAG}"
+    RFDUDE_APP_VERSION="${PROJECT_VERSION}"
+)
 set_target_properties(RFdudeSmithChartV2 PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE

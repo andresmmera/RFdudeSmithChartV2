@@ -9,6 +9,7 @@
 #include "SchematicWidget.h"
 #include "SynthesisDialogs.h"
 #include "Touchstone.h"
+#include "UpdateCheck.h"
 
 #include <QAction>
 #include <QCloseEvent>
@@ -22,7 +23,17 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QDesktopServices>
+#include <QRegularExpression>
+#include <QUrl>
 #include <QPainter>
+#include <QPushButton>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QStatusBar>
@@ -33,6 +44,10 @@
 
 #include <algorithm>
 #include <cmath>
+
+#ifndef RFDUDE_BUILD_TAG
+#define RFDUDE_BUILD_TAG "local"
+#endif
 
 namespace {
 QString number(double value)
@@ -111,6 +126,76 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
     evaluation_ = rf::evaluate(document_);
     refresh();
     chart_->setFocus();
+}
+
+void MainWindow::checkForUpdates()
+{
+    if (!updateNetwork_) updateNetwork_ = new QNetworkAccessManager(this);
+    QNetworkRequest request(
+        QUrl("https://api.github.com/repos/llascari/RFdudeSmithChartV2/releases?per_page=20"));
+    request.setHeader(QNetworkRequest::UserAgentHeader, "RFdudeSmithChartV2");
+    request.setRawHeader("Accept", "application/vnd.github+json");
+    request.setTransferTimeout(12000);
+    QNetworkReply* reply = updateNetwork_->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            QMessageBox::warning(this, tr("Update check failed"),
+                tr("Could not check for updates:\n%1").arg(reply->errorString()));
+            return;
+        }
+        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (status != 200) {
+            QMessageBox::warning(this, tr("Update check failed"),
+                tr("GitHub returned HTTP %1 while checking for updates.").arg(status));
+            return;
+        }
+        QJsonParseError parseError;
+        const auto json = QJsonDocument::fromJson(reply->readAll(), &parseError);
+        if (parseError.error != QJsonParseError::NoError || !json.isArray()) {
+            QMessageBox::warning(this, tr("Update check failed"),
+                tr("GitHub returned an invalid update response."));
+            return;
+        }
+        QString tag;
+        QString releaseUrl;
+        bool prerelease = false;
+        for (const auto& value : json.array()) {
+            if (!value.isObject()) continue;
+            const auto candidate = value.toObject();
+            if (candidate.value("draft").toBool()) continue;
+            const QString candidateTag = candidate.value("tag_name").toString();
+            if (!QRegularExpression("^v\\d+\\.\\d+\\.\\d+$").match(candidateTag).hasMatch()) continue;
+            const QString candidateUrl = candidate.value("html_url").toString();
+            if (!candidateUrl.startsWith("https://github.com/llascari/RFdudeSmithChartV2/releases/")) continue;
+            if (tag.isEmpty() || rf::releaseVersionIsNewer(candidateTag.toStdString(), tag.toStdString())) {
+                tag = candidateTag;
+                releaseUrl = candidateUrl;
+                prerelease = candidate.value("prerelease").toBool();
+            }
+        }
+        if (tag.isEmpty() || releaseUrl.isEmpty()) {
+            QMessageBox::warning(this, tr("Update check failed"),
+                tr("GitHub returned incomplete release information."));
+            return;
+        }
+        const QString current = QCoreApplication::applicationVersion();
+        if (!rf::releaseVersionIsNewer(tag.toStdString(), current.toStdString())) {
+            QMessageBox::information(this, tr("No update available"),
+                tr("RFdude Smith Chart V2 %1 is current.\n\nLatest release: %2")
+                    .arg(current, tag));
+            return;
+        }
+        QMessageBox box(QMessageBox::Information, tr("Update available"),
+            tr("A newer RFdude Smith Chart V2 release is available.\n\n"
+               "Installed: %1\nLatest: %2%3")
+                .arg(current, tag, prerelease ? tr(" (pre-release)") : QString{}),
+            QMessageBox::Cancel, this);
+        QPushButton* openButton = box.addButton(tr("Open release page"), QMessageBox::AcceptRole);
+        box.exec();
+        if (box.clickedButton() == openButton)
+            QDesktopServices::openUrl(QUrl(releaseUrl));
+    });
 }
 
 void MainWindow::buildActions()
@@ -316,9 +401,13 @@ void MainWindow::buildActions()
                 });
             });
     }
+    action(help, tr("Check for updates..."), {}, "checkForUpdates",
+           [this] { checkForUpdates(); });
     action(help, tr("About"), {}, "about", [this] {
         QMessageBox box(QMessageBox::Information, tr("RFdude Smith Chart V2"),
-            tr("<p><b>RFdude Smith Chart V2</b> - first usable prototype</p>"
+            tr("<p><b>RFdude Smith Chart V2 %1</b>"
+               " - first usable prototype</p>"
+               "<p>Build: %2</p>"
                "<p>Ideal R/L/C, transformers, lossless lines/coax, and dielectric-loss microstrip."
                "<br>Project files are versioned JSON; legacy .lls files are import-only."
                "<br>VSWR/return loss refer to real chart Z0, not insertion loss.</p>"
@@ -335,7 +424,7 @@ void MainWindow::buildActions()
                "<br>The original RFdude Smith Chart application is used as a behavioral "
                "reference with the author's permission.</p>"
                "<p><b>Credits and external references</b><br>"
-               "Built with Qt %1, copyright The Qt Company Ltd. and contributors "
+               "Built with Qt %3, copyright The Qt Company Ltd. and contributors "
                "(<a href=\"https://www.qt.io/\">Qt</a>; dynamically linked).<br>"
                "Microstrip model: Hammerstad and Jensen, "
                "<i>Accurate Models for Microstrip Computer-Aided Design</i>, 1980 "
@@ -347,7 +436,10 @@ void MainWindow::buildActions()
                "S-parameter reference conversion: Pozar, <i>Microwave Engineering</i>, "
                "4th ed., section 4.3.<br>"
                "Touchstone format: <a href=\"https://ibis.org/touchstone_ver2.0/touchstone_ver2_0.pdf\">"
-               "IBIS Open Forum specification</a>.</p>").arg(QString::fromLatin1(qVersion())),
+               "IBIS Open Forum specification</a>.</p>")
+               .arg(QCoreApplication::applicationVersion(),
+                    QString::fromLatin1(RFDUDE_BUILD_TAG),
+                    QString::fromLatin1(qVersion())),
             QMessageBox::Ok, this);
         box.setTextFormat(Qt::RichText);
         box.exec();

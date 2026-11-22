@@ -47,7 +47,7 @@ See [CMakeLists.txt](CMakeLists.txt) and the
 
 | Area | Current repository behavior |
 |---|---|
-| Application version | `0.1.0`, set in the CMake `project()` declaration |
+| Application version | `0.1.1`, set in the CMake `project()` declaration |
 | CI Qt version | Pinned to Qt `6.8.3`; not automatically upgraded |
 | Windows job | Windows 2022 runner, x64 MSVC 2022 Qt kit, Inno Setup `.exe` installer |
 | Linux job | Ubuntu 22.04 runner, x64 Qt kit, `.deb` package |
@@ -145,7 +145,7 @@ After testing, deploy to a staging directory and build the installer:
 ```powershell
 $stage = "$PWD/stage/windows"
 cmake --install build/package --config Release --prefix $stage
-iscc "/DAppStage=$stage" "/DAppVersion=0.1.0" packaging/windows/RFdudeSmithChartV2.iss
+iscc "/DAppStage=$stage" "/DAppVersion=0.1.1" packaging/windows/RFdudeSmithChartV2.iss
 ```
 
 Distribute the generated `*-setup.exe` from `packages/`. It installs the app,

@@ -13,6 +13,8 @@ class SchematicWidget;
 class FrequencyResponseDialog;
 class QAction;
 class QDockWidget;
+class QNetworkAccessManager;
+class QNetworkReply;
 
 class MainWindow final : public QMainWindow
 {
@@ -68,6 +70,7 @@ private:
     void chooseReferenceOverlay();
     void clearReferenceOverlay();
     void ensureFrequencyResponse();
+    void checkForUpdates();
 
     rf::Document document_;
     rf::Document saved_;
@@ -96,4 +99,5 @@ private:
     QAction* s22TrajectoryAction_ = nullptr;
     QAction* simpleTrajectoriesAction_ = nullptr;
     std::vector<QAction*> displayActions_;
+    QNetworkAccessManager* updateNetwork_ = nullptr;
 };

@@ -112,6 +112,11 @@ Versioned Linux, Windows, and macOS installers are published on the
 They are unsigned and unsupported, and the macOS DMGs are not notarized;
 review the release notes before installing.
 
+Use **Help -> Check for updates...** to request the latest public release
+information from GitHub on demand. The application makes no automatic update
+request and does not download or install an update. If a newer `vX.Y.Z` release
+is found, the dialog opens the GitHub release page for a manual choice.
+
 ## VS Code: local desktop building and debugging
 
 This is a desktop Qt/C++ CMake project, not an STM32 or embedded firmware
@@ -617,7 +622,7 @@ Linux distribution.
 Bundled Linux installs keep the executable, `qt.conf`, Qt libraries, plugins,
 and translations under `lib/rfdudesmithchartv2` relative to the install prefix.
 Only a shell launcher is installed in `bin`; no shared `bin/qt.conf` or global
-Qt libraries/plugins are installed. Debian revision `0.1.0-1` supersedes the
+Qt libraries/plugins are installed. Debian revision `0.1.1-1` supersedes the
 unsafe original `0.1.0` package. Validate the finished package without installing
 it using `python3 tools/check_linux_package.py build/packages/*.deb` (requires
 `xvfb-run`, `xauth`, and the package's host library dependencies).

@@ -17,11 +17,11 @@ spec.loader.exec_module(publisher)
 
 class ReleaseTests(unittest.TestCase):
     def installers(self, root):
-        windows = root / "RFdudeSmithChartV2-0.1.0-windows-x64-setup.exe"
-        appimage = root / "RFdudeSmithChartV2-0.1.0-linux-x64.AppImage"
-        mac_arm64 = root / "RFdudeSmithChartV2-0.1.0-macos-arm64.dmg"
-        mac_x64 = root / "RFdudeSmithChartV2-0.1.0-macos-x64.dmg"
-        linux = root / "rfdudesmithchartv2_0.1.0-1_amd64.deb"
+        windows = root / "RFdudeSmithChartV2-0.1.1-windows-x64-setup.exe"
+        appimage = root / "RFdudeSmithChartV2-0.1.1-linux-x64.AppImage"
+        mac_arm64 = root / "RFdudeSmithChartV2-0.1.1-macos-arm64.dmg"
+        mac_x64 = root / "RFdudeSmithChartV2-0.1.1-macos-x64.dmg"
+        linux = root / "rfdudesmithchartv2_0.1.1-1_amd64.deb"
         windows.write_bytes(b"windows test fixture")
         appimage.write_bytes(b"linux AppImage test fixture")
         mac_arm64.write_bytes(b"macOS Apple Silicon test fixture")
@@ -31,7 +31,7 @@ class ReleaseTests(unittest.TestCase):
 
     def publish(self, root, tag="build-123-1"):
         publisher.publish(
-            root, "0.1.0", "a" * 40, tag,
+            root, "0.1.1", "a" * 40, tag,
             "https://github.com/example/project/actions/runs/123", "example/project",
         )
 
@@ -55,6 +55,8 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn("--draft=false", edit)
             metadata = json.loads((root / "build-info.json").read_text())
             self.assertEqual(metadata["commit"], "a" * 40)
+            self.assertEqual(metadata["version"], "0.1.1")
+            self.assertEqual(metadata["tag"], "build-123-1")
             for path in installers:
                 self.assertEqual(metadata["sha256"][path.name], hashlib.sha256(path.read_bytes()).hexdigest())
             self.assertTrue(all(call.kwargs["check"] for call in run.call_args_list))
@@ -99,7 +101,7 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "tag must identify"):
                 self.publish(root, "v9.9.9")
             run.assert_not_called()
-            self.publish(root, "v0.1.0")
+            self.publish(root, "v0.1.1")
             self.assertIn("--verify-tag", run.call_args_list[0].args[0])
 
 

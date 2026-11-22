@@ -10,6 +10,7 @@ target_link_libraries(ui_tests PRIVATE rfui Qt6::Test)
 target_compile_definitions(ui_tests PRIVATE TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 set(ui_interaction_cases
     applicationIconResource
+    updateActionAndVersion
     aboutCreditsAndReferences
     touchstoneImportAndCombinedPng
     touchstoneErrorsAndUndo

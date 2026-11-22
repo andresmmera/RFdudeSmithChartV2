@@ -1,6 +1,7 @@
 #include "DocumentIO.h"
 #include "RfModel.h"
 #include "Touchstone.h"
+#include "UpdateCheck.h"
 
 #include <QFile>
 #include <QJsonDocument>
@@ -39,6 +40,19 @@ class RfTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void updateVersionComparison()
+    {
+        QVERIFY(rf::releaseVersionIsNewer("v0.1.1", "0.1.0"));
+        QVERIFY(rf::releaseVersionIsNewer("v1.0.0", "0.9.9"));
+        QVERIFY(!rf::releaseVersionIsNewer("v0.1.0", "0.1.0"));
+        QVERIFY(!rf::releaseVersionIsNewer("build-44957711509-1", "0.1.0"));
+        const auto parsed = rf::parseReleaseVersion("v0.1.1");
+        QVERIFY(parsed.has_value());
+        QCOMPARE(parsed->major, 0);
+        QCOMPARE(parsed->minor, 1);
+        QCOMPARE(parsed->patch, 1);
+    }
+
     void idealTransformers()
     {
         auto c = rf::defaultComponent(rf::Kind::Transformer, 1000, 50);
