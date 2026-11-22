@@ -47,6 +47,7 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(create[:4], ["gh", "release", "create", "build-123-1"])
             self.assertIn("--draft", create)
             self.assertIn("--prerelease", create)
+            self.assertIn("--latest=false", create)
             self.assertNotIn("--clobber", create)
             for path in installers:
                 self.assertIn(str(path), create)
@@ -103,6 +104,12 @@ class ReleaseTests(unittest.TestCase):
             run.assert_not_called()
             self.publish(root, "v0.1.1")
             self.assertIn("--verify-tag", run.call_args_list[0].args[0])
+            create, edit = [call.args[0] for call in run.call_args_list]
+            self.assertIn("--latest=true", create)
+            self.assertNotIn("--prerelease", create)
+            self.assertIn("RFdude Smith Chart V2 0.1.1", create)
+            self.assertIn("--latest=true", edit)
+            self.assertNotIn("--prerelease", edit)
 
 
 if __name__ == "__main__":

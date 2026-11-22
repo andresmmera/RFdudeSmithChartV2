@@ -36,7 +36,6 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDesktopServices>
-#include <QRegularExpression>
 #include <QUrl>
 #include <QPainter>
 #include <QPushButton>
@@ -202,44 +201,92 @@ void MainWindow::checkForUpdates()
                 tr("GitHub returned an invalid update response."));
             return;
         }
-        QString tag;
-        QString releaseUrl;
-        bool prerelease = false;
+        struct NewerRelease
+        {
+            QString tag;
+            QString name;
+            QString url;
+            bool prerelease = false;
+        };
+        std::vector<NewerRelease> newerReleases;
+        NewerRelease latestRelease;
+        const QString current = QCoreApplication::applicationVersion();
+        const QString currentBuildTag = QString::fromLatin1(RFDUDE_BUILD_TAG);
+        const auto currentVersion = rf::parseReleaseVersion(current.toStdString());
         for (const auto& value : json.array()) {
             if (!value.isObject()) continue;
             const auto candidate = value.toObject();
             if (candidate.value("draft").toBool()) continue;
             const QString candidateTag = candidate.value("tag_name").toString();
-            if (!QRegularExpression("^v\\d+\\.\\d+\\.\\d+$").match(candidateTag).hasMatch()) continue;
+            const QString candidateName = candidate.value("name").toString();
             const QString candidateUrl = candidate.value("html_url").toString();
             if (!candidateUrl.startsWith("https://github.com/llascari/RFdudeSmithChartV2/releases/")) continue;
-            if (tag.isEmpty() || rf::releaseVersionIsNewer(candidateTag.toStdString(), tag.toStdString())) {
-                tag = candidateTag;
-                releaseUrl = candidateUrl;
-                prerelease = candidate.value("prerelease").toBool();
+            const bool candidatePrerelease = candidate.value("prerelease").toBool();
+            const auto candidateVersion = rf::parseReleaseVersionInText(
+                !candidateName.isEmpty()
+                    ? candidateName.toStdString()
+                    : candidateTag.toStdString());
+            if (!candidateVersion) continue;
+            if (latestRelease.tag.isEmpty()) {
+                latestRelease = {candidateTag, candidateName, candidateUrl, candidatePrerelease};
             }
+            if (!currentVersion) continue;
+
+            bool newer = candidateVersion->major > currentVersion->major
+                || (candidateVersion->major == currentVersion->major
+                    && candidateVersion->minor > currentVersion->minor)
+                || (candidateVersion->major == currentVersion->major
+                    && candidateVersion->minor == currentVersion->minor
+                    && candidateVersion->patch > currentVersion->patch);
+            if (!newer
+                && candidateVersion->major == currentVersion->major
+                && candidateVersion->minor == currentVersion->minor
+                && candidateVersion->patch == currentVersion->patch) {
+                if (rf::buildTagIsNewer(candidateTag.toStdString(), currentBuildTag.toStdString())) {
+                    newer = true;
+                } else if (candidatePrerelease
+                           && rf::parseBuildTag(candidateTag.toStdString())
+                           && !rf::parseBuildTag(currentBuildTag.toStdString())) {
+                    newer = true;
+                }
+            }
+            if (newer)
+                newerReleases.push_back({candidateTag, candidateName, candidateUrl, candidatePrerelease});
         }
-        if (tag.isEmpty() || releaseUrl.isEmpty()) {
+        if (latestRelease.tag.isEmpty() || latestRelease.url.isEmpty()) {
             QMessageBox::warning(this, tr("Update check failed"),
                 tr("GitHub returned incomplete release information."));
             return;
         }
-        const QString current = QCoreApplication::applicationVersion();
-        if (!rf::releaseVersionIsNewer(tag.toStdString(), current.toStdString())) {
+        if (newerReleases.empty()) {
+            const QString latestLabel = latestRelease.name.isEmpty()
+                ? latestRelease.tag
+                : latestRelease.name;
             QMessageBox::information(this, tr("No update available"),
-                tr("RFdude Smith Chart V2 %1 is current.\n\nLatest release: %2")
-                    .arg(current, tag));
+                tr("RFdude Smith Chart V2 %1 is current.\nBuild: %2\n\nLatest build/release: %3")
+                    .arg(current, currentBuildTag, latestLabel));
             return;
         }
+        QStringList newerLabels;
+        for (std::size_t i = 0; i < newerReleases.size() && i < 10; ++i) {
+            const auto& release = newerReleases[i];
+            const QString label = release.name.isEmpty() ? release.tag : release.name;
+            newerLabels.append(release.prerelease
+                ? tr("%1 (pre-release)").arg(label)
+                : label);
+        }
+        if (newerReleases.size() > 10)
+            newerLabels.append(tr("... and %1 more").arg(newerReleases.size() - 10));
         QMessageBox box(QMessageBox::Information, tr("Update available"),
-            tr("A newer RFdude Smith Chart V2 release is available.\n\n"
-               "Installed: %1\nLatest: %2%3")
-                .arg(current, tag, prerelease ? tr(" (pre-release)") : QString{}),
+            tr("Newer RFdude Smith Chart V2 build(s) are available.\n\n"
+               "Installed: %1\nBuild: %2\n\nNewer builds:\n%3")
+                .arg(current, currentBuildTag, newerLabels.join("\n")),
             QMessageBox::Cancel, this);
-        QPushButton* openButton = box.addButton(tr("Open release page"), QMessageBox::AcceptRole);
+        QPushButton* openButton = box.addButton(tr("Open Releases page"), QMessageBox::AcceptRole);
         box.exec();
         if (box.clickedButton() == openButton)
-            QDesktopServices::openUrl(QUrl(releaseUrl));
+            QDesktopServices::openUrl(
+                QUrl("https://github.com/llascari/RFdudeSmithChartV2/releases"));
     });
 }
 

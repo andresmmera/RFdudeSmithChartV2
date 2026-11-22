@@ -81,10 +81,10 @@ The [GitHub workflow](.github/workflows/build.yml) builds, tests, and packages
 Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon builds using Qt
 6.8.3. Each macOS build sets and checks its target architecture explicitly.
 Download packages from an Actions run's **Artifacts** section; artifacts are
-retained for 30 days. Passing builds on `main` and version tags also publish
-Linux, Windows, and both macOS installers together as GitHub Release
-pre-release assets, with checksums and source/build metadata. Pull requests
-and failed builds never publish releases.
+retained for 30 days. Passing builds on `main` publish immutable pre-release
+assets, while passing version tags publish stable/latest assets. Both include
+Linux, Windows, and both macOS installers with checksums and source/build
+metadata. Pull requests and failed builds never publish releases.
 The Windows download is a setup `.exe`; the Linux download is a `.deb` package
 that installs into the desktop app menu; macOS downloads are architecture-
 specific `.dmg` disk images.
@@ -112,10 +112,12 @@ Versioned Linux, Windows, and macOS installers are published on the
 They are unsigned and unsupported, and the macOS DMGs are not notarized;
 review the release notes before installing.
 
-Use **Help -> Check for updates...** to request the latest public release
-information from GitHub on demand. The application makes no automatic update
-request and does not download or install an update. If a newer `vX.Y.Z` release
-is found, the dialog opens the GitHub release page for a manual choice.
+Use **Help -> Check for updates...** to request public and pre-release builds
+from GitHub on demand. The application makes no automatic update request and
+does not download or install an update. It compares release versions and
+`build-<run>-<attempt>` tags, so a newer main-branch build is shown even when
+the application version remains unchanged. The dialog lists newer builds and
+opens the GitHub Releases page for a manual choice.
 
 ## VS Code: local desktop building and debugging
 

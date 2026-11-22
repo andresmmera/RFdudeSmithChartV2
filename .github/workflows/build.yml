@@ -365,7 +365,7 @@ jobs:
           path: release-assets
       - name: Test release publishing safeguards
         run: python3 -m unittest discover -s tests -p ReleaseTests.py
-      - name: Publish complete pre-release
+      - name: Publish complete release
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/publish-release.py release-assets

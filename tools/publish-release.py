@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish a complete, verified CI installer set as an immutable pre-release."""
+"""Publish a complete, verified CI installer set as an immutable release."""
 
 import argparse
 import hashlib
@@ -39,11 +39,13 @@ def publish(assets: Path, version: str, commit: str, tag: str, run_url: str, rep
         "workflow_run": run_url,
         "sha256": checksums,
         "validation": "All platform jobs passed, including tests, isolated Linux DEB and AppImage runtime checks, AppImage tool/runtime checksum verification, and explicit macOS architecture checks.",
-        "limitations": "Unsigned, unnotarized, unsupported pre-release; not exhaustive clean-machine certification.",
+        "limitations": "Unsigned, unnotarized, unsupported release; not exhaustive clean-machine certification.",
     }, indent=2) + "\n")
     notes = assets / "release-notes.txt"
+    version_tag = tag.startswith("v")
+    release_kind = "public release" if version_tag else "pre-release"
     notes.write_text(
-        f"Automated RFdude Smith Chart V2 {version} pre-release.\n\n"
+        f"Automated RFdude Smith Chart V2 {version} {release_kind}.\n\n"
         f"Source commit: `{commit}`\n\n"
         f"[Passing build and test run]({run_url}). Linux x64 DEB and AppImage, Windows x64, "
         "macOS Intel, and macOS Apple Silicon jobs passed. Linux packaging checks "
@@ -61,18 +63,29 @@ def publish(assets: Path, version: str, commit: str, tag: str, run_url: str, rep
     )
     command = [
         "gh", "release", "create", tag, "--repo", repository, "--target", commit,
-        "--title", f"RFdude Smith Chart V2 {version} ({tag})",
-        "--draft", "--prerelease", "--latest=false", "--notes-file", str(notes),
+        "--title",
+        f"RFdude Smith Chart V2 {version}" if version_tag
+        else f"RFdude Smith Chart V2 {version} ({tag})",
+        "--draft", "--notes-file", str(notes),
         *(str(path) for path in sorted(assets.iterdir()) if path != notes),
     ]
     if tag.startswith("v"):
         command.append("--verify-tag")
+        command.append("--latest=true")
+    else:
+        command.append("--prerelease")
+        command.append("--latest=false")
     # Upload the complete set while hidden; a failed upload leaves only a draft.
     subprocess.run(command, check=True)
-    subprocess.run([
+    edit_command = [
         "gh", "release", "edit", tag, "--repo", repository,
-        "--draft=false", "--prerelease", "--latest=false",
-    ], check=True)
+        "--draft=false",
+    ]
+    if version_tag:
+        edit_command.append("--latest=true")
+    else:
+        edit_command.extend(["--prerelease", "--latest=false"])
+    subprocess.run(edit_command, check=True)
 
 
 if __name__ == "__main__":

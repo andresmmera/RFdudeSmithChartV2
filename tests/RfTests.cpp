@@ -51,6 +51,21 @@ private slots:
         QCOMPARE(parsed->major, 0);
         QCOMPARE(parsed->minor, 1);
         QCOMPARE(parsed->patch, 1);
+        const auto titleVersion = rf::parseReleaseVersionInText(
+            "RFdude Smith Chart V2 0.1.1 (build-45038072166-1)");
+        QVERIFY(titleVersion.has_value());
+        QCOMPARE(titleVersion->major, 0);
+        QCOMPARE(titleVersion->minor, 1);
+        QCOMPARE(titleVersion->patch, 1);
+        QVERIFY(!rf::parseReleaseVersionInText("build-45038072166-1").has_value());
+        const auto build = rf::parseBuildTag("build-45038072166-1");
+        QVERIFY(build.has_value());
+        QCOMPARE(build->run, std::uint64_t(45038072166));
+        QCOMPARE(build->attempt, 1u);
+        QVERIFY(rf::buildTagIsNewer("build-45038072166-1", "build-44973106264-1"));
+        QVERIFY(rf::buildTagIsNewer("build-44973106264-2", "build-44973106264-1"));
+        QVERIFY(!rf::buildTagIsNewer("build-44973106264-1", "build-45038072166-1"));
+        QVERIFY(!rf::parseBuildTag("v0.1.1").has_value());
     }
 
     void idealTransformers()

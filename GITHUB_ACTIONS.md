@@ -78,13 +78,15 @@ The publishing job downloads only this run's four verified platform artifacts
 (Linux x64, Windows x64, macOS Intel, and macOS Apple Silicon), requires the
 complete expected installer set, and attaches installers, `SHA256SUMS.txt`, and
 `build-info.json` with the exact source SHA and run URL. Assets are uploaded
-to a draft first, then made public as a pre-release only after all uploads
-succeed. Upload failure leaves a draft, not a partial public release. Existing
+to a draft first, then made public only after all uploads succeed. Main-branch
+builds become pre-releases; version-tag builds become stable/latest releases.
+Upload failure leaves a draft, not a partial public release. Existing
 releases/assets are never overwritten, including the original release's KDE
 recovery notes; an existing version release makes publication fail rather than
 replace its assets. A rerun on `main` uses a new attempt-specific tag.
-Automatic pre-releases are not marked as stable/latest; find them on the
-repository's **Releases** page.
+Automatic `build-<run-id>-<attempt>` pre-releases are not marked as
+stable/latest. Version-tagged `v<version>` builds are published as stable/latest
+releases. Find both kinds on the repository's **Releases** page.
 
 Only the publishing job has `contents: write`, using the built-in
 `GITHUB_TOKEN`. No personal token or signing secrets are needed. The same
@@ -148,7 +150,7 @@ If your fork needs a change to the build recipe, ask Copilot in that repository:
 > Preserve the existing application and
 > packaging behavior. Do not add secrets, paid services, signing,
 > or Copilot-specific dependencies. Preserve the existing
-> gated pre-release publishing behavior. Do not push commits, create tags
+> gated release publishing behavior. Do not push commits, create tags
 > or releases, or change repository visibility. Explain any required GitHub
 > Settings actions to the repository owner, and run any safe local checks
 > available.

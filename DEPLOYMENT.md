@@ -3,7 +3,8 @@
 This is the maintainer's guide to making RFdude Smith Chart V2 downloadable
 on Windows, macOS, and Linux. It separates existing functionality from proposed
 release work. The original V2 source is licensed under MIT. Passing main-branch
-and version-tag CI builds now publish unsigned pre-releases automatically.
+CI builds publish unsigned pre-releases, while passing version-tag builds publish
+unsigned stable/latest releases.
 
 **Recommended starting point:** publish versioned downloads on GitHub Releases:
 a Windows x64 setup installer, separate Intel and Apple Silicon macOS DMGs,
@@ -55,7 +56,7 @@ See [CMakeLists.txt](CMakeLists.txt) and the
 | CI triggers | Pushes to `main` or `v*` tags, pull requests, and manual dispatch |
 | CI downloads | Per-platform workflow artifacts retained for 30 days |
 | Windows after test failure | A successful build is still packaged; installer artifact name ends in `-tests-failed` and is not CI-verified |
-| Public releases | Passing main/tag builds publish Linux, Windows, Intel macOS, and Apple Silicon macOS pre-releases with checksums |
+| Public releases | Main builds publish Linux, Windows, Intel macOS, and Apple Silicon macOS pre-releases; version tags publish stable/latest releases with checksums |
 | Signing | No configured Windows signing or macOS Developer ID signing/notarization |
 | Updates | No automatic updater; users install a newer download manually |
 
@@ -114,7 +115,7 @@ can change. Check
 and [runner pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing)
 for current details before enabling paid overage. The publishing job waits for
 all four build jobs and every installer safety job, uploads the complete verified set to a draft, then publishes
-it as a pre-release. Failed builds cannot publish.
+main builds as pre-releases or version-tag builds as stable/latest releases. Failed builds cannot publish.
 
 ## 3. Build a distributable manually
 
@@ -193,7 +194,7 @@ shared library/plugin, verifies relative/private ELF search paths with `readelf`
 and launches the packaged command under Xvfb. Loader
 diagnostics must also show that all actually loaded Qt libraries are private.
 CI additionally rechecks the final output before uploading Linux installers.
-Before public pre-release publication, separate installer jobs exercise
+Before public release publication, separate installer jobs exercise
 install/reinstall/purge beside distro KDE/Qt on Ubuntu 22.04/24.04/26.04 and
 Debian 12/13. Distro runtime hashes, loader configuration/cache, a KDE canary,
 existing package versions, and visible application windows are checked.
@@ -358,7 +359,7 @@ app from the applications menu; remove it from the software manager when done.
   distributions. It is not a universal Linux installer; RPM-based systems need
   a separate package and validation.
 
-## 5. Automatic downloadable pre-releases
+## 5. Automatic downloadable releases
 
 The [build workflow](.github/workflows/build.yml) publishes only after all four
 Linux, Windows, Intel macOS, and Apple Silicon macOS jobs pass, including all
@@ -380,8 +381,9 @@ Existing releases are never overwritten. This preserves the original
 `v0.1.0` KDE warning and recovery instructions. A version-tag run whose release
 already exists fails publication rather than replacing assets; use a new
 version/tag. Rerunning `main` creates a new attempt-specific release.
-No stable/latest designation is applied automatically. Use the repository's
-Releases page, not expiring Actions artifact links, for downloads.
+Main-branch builds remain immutable pre-releases and are not marked as
+stable/latest. Version-tagged builds are published as stable/latest releases.
+Use the repository's Releases page, not expiring Actions artifact links, for downloads.
 
 The installers remain unsigned, unsupported pre-releases; macOS DMGs are not
 notarized. Passing CI does not replace clean-machine install/uninstall checks,
