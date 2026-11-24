@@ -185,8 +185,8 @@ std::optional<rf::Document> matchWizard(QWidget* parent, const rf::Document& doc
             field->setVisible(visible);
             form->labelForField(field)->setVisible(visible);
         };
-        sections->setEnabled(topology == rf::MatchType::LowPass || topology == rf::MatchType::HighPass
-                             || topology == rf::MatchType::QuarterWave);
+        setRowVisible(sections, topology == rf::MatchType::LowPass || topology == rf::MatchType::HighPass
+                                    || topology == rf::MatchType::QuarterWave);
         setRowVisible(stub, stubs);
         setRowVisible(reactance, topology == rf::MatchType::QuarterWave);
         const bool weightable = topology == rf::MatchType::QuarterWave && sections->value() > 1;
