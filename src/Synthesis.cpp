@@ -360,7 +360,7 @@ void addDoubleTappedNetwork(Document& document, const MatchSpecification& s)
     if (c2Series <= ceq * (1 + 1e-9)) {
         char text[96];
         std::snprintf(text, sizeof text, "The tap inductor must exceed %.3f nH.",
-                      (1 / (omega * omega * c2Series) - l1Series) * 1e9);
+                      std::max(0.0, 1 / (omega * omega * c2Series) - l1Series) * 1e9);
         throw std::invalid_argument(text);
     }
     const double c1 = ceq * c2Series / (c2Series - ceq);
@@ -371,19 +371,110 @@ void addDoubleTappedNetwork(Document& document, const MatchSpecification& s)
     addShuntSusceptance(document, -1 / (omega * l1));
 }
 
+/// @brief Characteristic impedances of a binomial multisection quarter-wave transformer.
+/// @details The N lines separate N + 1 impedance steps. The logarithm of step k is
+/// C(N, k)/2^N of ln(high/low), for k = 0..N, and the last step goes into the high
+/// termination. This is the small-reflection design, which is maximally flat around the
+/// design frequency. Its weights are symmetric, so it also matches exactly there.
+/// @par Reference
+/// D. M. Pozar, Microwave Engineering, 4th ed., Wiley, 2012, section 5.7; ported from
+/// the MultisectionQuarterWave tool of Qucs-S
+/// (https://github.com/andresmmera/qucs-s-spar-viewer).
+/// @param sections Number of quarter-wave sections N.
+/// @param low Smaller termination in ohms.
+/// @param high Larger termination in ohms.
+/// @return The N line impedances in ohms, ordered from the low to the high termination.
+std::vector<double> binomialLines(int sections, double low, double high)
+{
+    const double logRatio = std::log(high / low);
+    std::vector<double> lines;
+    double logImpedance = std::log(low);
+    double coefficient = 1;  // C(N, k), updated by C(N, k+1) = C(N, k) (N - k)/(k + 1)
+    for (int k = 0; k < sections; ++k) {
+        logImpedance += logRatio * coefficient / std::pow(2.0, sections);
+        lines.push_back(std::exp(logImpedance));
+        coefficient *= double(sections - k) / (k + 1);
+    }
+    return lines;
+}
+
+/// @brief Characteristic impedances of a Chebyshev multisection quarter-wave transformer.
+/// @details The reflection response is Gm T_N(sec(theta_m) cos(theta)), with
+/// cosh(N acosh(sec(theta_m))) = ln(high/low)/(2 Gm). Expanding T_N in cos(k theta)
+/// gives the logarithmic step before each line as Gm times the coefficient of order
+/// |N - 2i|, where the centre term (k = 0) counts twice. The coefficients come from the
+/// recurrence T(m+1) = 2x T(m) - T(m-1) with x = sec(theta_m) cos(theta), which is
+/// exact for any N; the Qucs-S tool only tabulates N up to 7. The response is
+/// small-reflection theory with equiripple |Gamma| <= Gm in the passband. Odd N is
+/// exactly matched at the design frequency, while even N reaches Gm there.
+/// @par Reference
+/// D. M. Pozar, Microwave Engineering, 4th ed., Wiley, 2012, section 5.8; ported from
+/// the MultisectionQuarterWave tool of Qucs-S
+/// (https://github.com/andresmmera/qucs-s-spar-viewer).
+/// @param sections Number of quarter-wave sections N.
+/// @param low Smaller termination in ohms.
+/// @param high Larger termination in ohms.
+/// @param maxReflection Maximum passband reflection coefficient Gm.
+/// @return The N line impedances in ohms, ordered from the low to the high termination.
+/// @throws std::invalid_argument If Gm is not in (0, 1), or if it is at least
+/// ln(high/low)/2, because then no transformer is needed.
+std::vector<double> chebyshevLines(int sections, double low, double high, double maxReflection)
+{
+    if (!std::isfinite(maxReflection) || maxReflection <= 0 || maxReflection >= 1)
+        throw std::invalid_argument("The Chebyshev maximum reflection coefficient must be between 0 and 1.");
+    const double logRatio = std::log(high / low);
+    const double argument = logRatio / (2 * maxReflection);
+    if (argument <= 1)
+        throw std::invalid_argument("The Chebyshev maximum reflection coefficient must be below "
+                                    "ln(Rhigh/Rlow)/2; a larger ripple needs no transformer.");
+    const double secant = std::cosh(std::acosh(argument) / sections);
+    // Coefficients of cos(k theta) in T_N(secant cos(theta)). Since
+    // 2 secant cos(theta) cos(k theta) = secant (cos((k+1) theta) + cos((k-1) theta)),
+    // multiplying by 2x shifts every coefficient to its two neighbours.
+    std::vector<double> previous = {1};
+    std::vector<double> current = {0, secant};
+    for (int m = 1; m < sections; ++m) {
+        std::vector<double> next(m + 2, 0.0);
+        for (int k = 0; k <= m; ++k) {
+            next[k + 1] += secant * current[k];
+            next[std::abs(k - 1)] += secant * current[k];
+        }
+        for (size_t k = 0; k < previous.size(); ++k)
+            next[k] -= previous[k];
+        previous = current;
+        current = next;
+    }
+    std::vector<double> lines;
+    double logImpedance = std::log(low);
+    for (int i = 0; i < sections; ++i) {
+        const int order = std::abs(sections - 2 * i);
+        logImpedance += maxReflection * current[order] * (order == 0 ? 2 : 1);
+        lines.push_back(std::exp(logImpedance));
+    }
+    return lines;
+}
+
 /// @brief Verifies that the synthesized network ends on the goal impedance.
 /// @details This checks the whole network, not just the range of each component:
 /// extreme ratios can lose precision even when every element is representable.
+/// Equiripple designs are not exactly matched at the design frequency, so they are
+/// checked against their reflection bound instead.
 /// @param document Synthesized document, evaluated from its start impedance.
-/// @throws std::invalid_argument If the endpoint is open or differs from the goal by
-/// more than 1e-7 of max(1, |goal|).
-void verifyEndpoint(const Document& document)
+/// @param allowedReflection Zero to require an exact match; otherwise the largest
+/// allowed reflection coefficient at the goal, with a 1% tolerance.
+/// @throws std::invalid_argument If the endpoint is open, or differs from the goal by
+/// more than 1e-7 of max(1, |goal|) (exact match) or by more than the allowed
+/// reflection.
+void verifyEndpoint(const Document& document, double allowedReflection = 0)
 {
     auto endpoint = Impedance::fromOhms(document.startOhms);
     for (const auto& c : document.components)
         endpoint = apply(endpoint, c, document.frequencyMHz);
-    if (endpoint.isOpen() || std::abs(endpoint.ohms() - document.goalOhms)
-                                 > 1e-7 * std::max(1.0, std::abs(document.goalOhms)))
+    const double error = std::abs(endpoint.ohms() - document.goalOhms);
+    const bool exceeds = allowedReflection > 0
+                             ? error > (allowedReflection * 1.01 + 1e-7) * std::abs(endpoint.ohms() + document.goalOhms)
+                             : error > 1e-7 * std::max(1.0, std::abs(document.goalOhms));
+    if (endpoint.isOpen() || exceeds)
         throw std::invalid_argument("The matching network exceeds the supported numerical precision.");
 }
 }
@@ -470,6 +561,14 @@ Document synthesizeMatch(const MatchSpecification& s)
     // Q = sqrt(Rhigh/Rlow - 1). expm1 avoids cancellation for nearly equal R.
     const double stepQ = std::sqrt(std::expm1(logRatio / s.sections));
     const double omega = 2 * pi * s.frequencyMHz * 1e6;
+    // One section has a single impedance whatever the weighting, so it is not weighted.
+    const bool weighted = s.type == MatchType::QuarterWave && s.weighting != SectionWeighting::EqualRatio
+                          && s.sections > 1;
+    std::vector<double> weightedZ;
+    if (weighted)
+        weightedZ = s.weighting == SectionWeighting::Binomial
+                        ? binomialLines(s.sections, low, high)
+                        : chebyshevLines(s.sections, low, high, s.maxReflection);
     if (high != low) {
         for (int i = 0; i < s.sections; ++i) {
             const double r1 = low * std::exp(logRatio * i / s.sections);
@@ -480,7 +579,7 @@ Document synthesizeMatch(const MatchSpecification& s)
                 // r1 into r2; its electrical length is referenced to design MHz.
                 auto c = defaultComponent(Kind::Line, s.frequencyMHz, s.referenceOhms);
                 c.lengthDegrees = 90;
-                c.lineOhms = std::sqrt(r1) * std::sqrt(r2);
+                c.lineOhms = weighted ? weightedZ[i] : std::sqrt(r1) * std::sqrt(r2);
                 ladder.push_back(c);
             } else {
                 const bool lowPass = s.type == MatchType::LowPass;
@@ -512,7 +611,7 @@ Document synthesizeMatch(const MatchSpecification& s)
     document.components.insert(document.components.end(), ladder.begin(), ladder.end());
     addSeriesReactance(document, s.goalOhms.imag());
     finish(document);
-    verifyEndpoint(document);
+    verifyEndpoint(document, weighted && s.weighting == SectionWeighting::Chebyshev ? s.maxReflection : 0);
     return document;
 }
 

@@ -29,6 +29,13 @@ enum class ReactanceMatch {
     LambdaEighth  ///< Lambda/8 line with Z = |Zstart|, then quarter-wave sections.
 };
 
+/// @brief Weighting of the impedance steps of a multisection quarter-wave transformer.
+enum class SectionWeighting {
+    EqualRatio,  ///< Every section has the same impedance ratio.
+    Binomial,    ///< Maximally flat response around the design frequency.
+    Chebyshev    ///< Equiripple response, bounded by MatchSpecification::maxReflection.
+};
+
 /// @brief Band of each half of a Pi or Tee network, goal (source) side first.
 enum class HalfBands {
     LpLp,  ///< Low-pass goal half, low-pass start half.
@@ -53,6 +60,8 @@ struct MatchSpecification
     HalfBands halves = HalfBands::LpLp;  ///< Band of each half; used only by Pi and Tee.
     TapElement tap = TapElement::Capacitor;  ///< Tapped element; used only by Tapped.
     double tapInductanceNh = 10;  ///< Series tap inductor in nH; used only by DoubleTapped.
+    SectionWeighting weighting = SectionWeighting::EqualRatio;  ///< Used only by QuarterWave with several sections.
+    double maxReflection = 0.05;  ///< Chebyshev ripple |Gamma|max; used only with Chebyshev weighting.
     Complex startOhms = {5, 0};
     Complex goalOhms = {50, 0};
     double frequencyMHz = 1000;

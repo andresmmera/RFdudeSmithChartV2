@@ -140,6 +140,10 @@ std::optional<rf::Document> matchWizard(QWidget* parent, const rf::Document& doc
     auto* stub = choices(form, "Stub termination", "matchStub", {"Open", "Shorted"});
     auto* reactance = choices(form, "Start reactance matching", "matchReactance",
                               {"Lumped L/C", "Lambda/8 line"});
+    auto* weighting = choices(form, "Section weighting", "matchWeighting",
+                              {"Equal ratio", "Binomial (maximally flat)", "Chebyshev (equiripple)"});
+    auto* ripple = field(form, "Max reflection coefficient", "matchRipple", 0.05, 0.001, 1);
+    ripple->setDecimals(3);
     auto* halfBands = choices(form, "Network type (goal side first)", "matchHalves",
                               {"LP-LP", "LP-HP", "HP-LP", "HP-HP"});
     auto* tap = choices(form, "Tapped element", "matchTap",
@@ -150,13 +154,15 @@ std::optional<rf::Document> matchWizard(QWidget* parent, const rf::Document& doc
     tapInductance->setDecimals(2);
     auto* note = new QLabel;
     note->setWordWrap(true);
-    const auto updateControls = [form, type, sections, stub, reactance, halfBands, tap, loadedQ, tapInductance, note] {
+    const auto updateControls = [form, type, sections, stub, reactance, weighting, ripple, halfBands, tap, loadedQ, tapInductance, note] {
         // Indexed like rf::MatchType.
         static const QStringList details = {
                                              "Legacy MatchMe: equal-ratio resistance steps, with series reactance compensation at the ends.",
                                              "Legacy MatchMe: equal-ratio resistance steps, with series reactance compensation at the ends.",
                                              "Equal-ratio resistance steps with quarter-wave lines. The start reactance is matched with a "
-                                             "lumped element or a lambda/8 line; the goal reactance always uses a lumped element.",
+                                             "lumped element or a lambda/8 line; the goal reactance always uses a lumped element. "
+                                             "With several sections the impedance steps can be equal-ratio, binomial (maximally flat) or "
+                                             "Chebyshev (equiripple; even-order designs reach the maximum reflection at the design frequency).",
                                              "A series line then a shunt stub, using the goal resistance as impedance (goal reactance must "
                                              "be 0). The start reactance is matched directly.",
                                              "A stub across the load, a lambda/8 line, then a second stub, using the goal resistance as "
@@ -183,6 +189,10 @@ std::optional<rf::Document> matchWizard(QWidget* parent, const rf::Document& doc
                              || topology == rf::MatchType::QuarterWave);
         setRowVisible(stub, stubs);
         setRowVisible(reactance, topology == rf::MatchType::QuarterWave);
+        const bool weightable = topology == rf::MatchType::QuarterWave && sections->value() > 1;
+        setRowVisible(weighting, weightable);
+        setRowVisible(ripple, weightable
+                                  && weighting->currentIndex() == static_cast<int>(rf::SectionWeighting::Chebyshev));
         const bool halves = topology == rf::MatchType::Pi || topology == rf::MatchType::Tee;
         const bool tapped = topology == rf::MatchType::Tapped;
         setRowVisible(halfBands, halves);
@@ -195,6 +205,8 @@ std::optional<rf::Document> matchWizard(QWidget* parent, const rf::Document& doc
                         "preserved; no example load is substituted.");
     };
     QObject::connect(type, &QComboBox::currentIndexChanged, type, updateControls);
+    QObject::connect(sections, &QSpinBox::valueChanged, sections, updateControls);
+    QObject::connect(weighting, &QComboBox::currentIndexChanged, weighting, updateControls);
     updateControls();
     auto* startR = field(form, "Starting resistance (ohm)", "matchStartR", document.startOhms.real(), 0);
     auto* startX = field(form, "Starting reactance (ohm)", "matchStartX", document.startOhms.imag(), -1e12);
@@ -210,6 +222,8 @@ std::optional<rf::Document> matchWizard(QWidget* parent, const rf::Document& doc
         s.startReactance = static_cast<rf::ReactanceMatch>(reactance->currentIndex());
         s.halves = static_cast<rf::HalfBands>(halfBands->currentIndex());
         s.tap = static_cast<rf::TapElement>(tap->currentIndex());
+        s.weighting = static_cast<rf::SectionWeighting>(weighting->currentIndex());
+        s.maxReflection = ripple->value();
         s.tapInductanceNh = tapInductance->value();
         s.q = loadedQ->value();
         s.startOhms = {startR->value(), startX->value()};
